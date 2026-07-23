@@ -1,17 +1,13 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-  getAuth, GoogleAuthProvider, onAuthStateChanged,
-  signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  signOut, sendPasswordResetEmail, sendEmailVerification, updateProfile
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {
-  getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc,
-  deleteDoc, query, where, orderBy, limit, startAfter, onSnapshot,
-  increment, serverTimestamp, Timestamp
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
 
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyAE8trK37zYX9wK2kySOHOekB4iDiJHABc",
+  apiKey: "AIzaSyAE8trK37zYX9wK2kyS0HOekB4iDiJHABc",
   authDomain: "nokt-hub.firebaseapp.com",
   projectId: "nokt-hub",
   storageBucket: "nokt-hub.firebasestorage.app",
@@ -20,16 +16,6 @@ const firebaseConfig = {
   measurementId: "G-43WH4M83ZC"
 };
 
-export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const googleProvider = new GoogleAuthProvider();
-
-export {
-  onAuthStateChanged, signInWithPopup, signInWithEmailAndPassword,
-  createUserWithEmailAndPassword, signOut, sendPasswordResetEmail,
-  sendEmailVerification, updateProfile,
-  collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc,
-  query, where, orderBy, limit, startAfter, onSnapshot,
-  increment, serverTimestamp, Timestamp
-};
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
