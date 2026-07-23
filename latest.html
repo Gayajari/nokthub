@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title id="page-title">NOKT HUB</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="header-row container">
+    <a href="index.html" class="brand">
+      <img src="https://i.ibb.co/placeholder/logo.png" alt="NOKT HUB logo">
+      NOKT HUB <span class="dot"></span>
+    </a>
+    <a href="index.html" class="nav-btn">Home</a>
+    <div class="search-wrap">
+      <input id="search-input" class="search-input" type="text" placeholder="Cari judul, tag, kategori...">
+      <div id="search-results" class="search-results"></div>
+    </div>
+    <button id="login-btn" class="btn">Login</button>
+    <div id="profile-btn" class="profile-btn nav-btn" style="display:none;cursor:pointer"></div>
+  </div>
+</header>
+
+<main class="container section">
+  <h1 id="listing-title" class="video-title">Memuat...</h1>
+  <div id="listing-grid" class="video-grid" style="margin-top:16px"></div>
+  <div id="pagination" class="pagination"></div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">NOKT HUB — © 2026</div>
+</footer>
+
+<script type="module" src="js/firebase-config.js"></script>
+<script type="module" src="js/auth.js"></script>
+<script type="module">
+import { initLatestListing } from "./js/listing.js";
+import "./js/app.js";
+const params = new URLSearchParams(window.location.search);
+initLatestListing();
+</script>
+</body>
+</html>

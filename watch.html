@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title id="page-title">NOKT HUB — Tonton Video</title>
+<meta id="meta-desc" name="description" content="">
+<meta name="theme-color" content="#0A0A0B">
+<link rel="canonical" id="canonical-link" href="">
+<meta property="og:title" id="og-title" content="">
+<meta property="og:description" id="og-desc" content="">
+<meta property="og:image" id="og-image" content="">
+<meta name="twitter:card" content="summary_large_image">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script type="application/ld+json" id="json-ld"></script>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-row container">
+    <a href="index.html" class="brand">
+      <img src="https://i.ibb.co/placeholder/logo.png" alt="NOKT HUB logo">
+      NOKT HUB <span class="dot"></span>
+    </a>
+    <a href="index.html" class="nav-btn">Home</a>
+    <div class="search-wrap">
+      <input id="search-input" class="search-input" type="text" placeholder="Cari judul, tag, kategori...">
+      <div id="search-results" class="search-results"></div>
+    </div>
+    <button id="login-btn" class="btn">Login</button>
+    <div id="profile-btn" class="profile-btn nav-btn" style="display:none;cursor:pointer"></div>
+  </div>
+</header>
+
+<main class="container watch-layout">
+  <div>
+    <div id="player-container" class="player-wrap"></div>
+
+    <h1 id="video-title" class="video-title">Memuat...</h1>
+    <div class="video-stats">
+      <span id="stat-views">0 view</span>
+      <span id="stat-likes">0 like</span>
+      <span id="stat-date">-</span>
+    </div>
+
+    <div class="share-row">
+      <button class="share-btn" id="btn-like">👍 Suka</button>
+      <button class="share-btn" data-share="copy">Copy Link</button>
+      <button class="share-btn" data-share="whatsapp">WhatsApp</button>
+      <button class="share-btn" data-share="telegram">Telegram</button>
+      <button class="share-btn" data-share="facebook">Facebook</button>
+      <button class="share-btn" data-share="twitter">Twitter/X</button>
+      <button class="share-btn" data-share="native">Bagikan</button>
+    </div>
+
+    <p id="video-desc" style="color:var(--text-muted);margin:10px 0"></p>
+    <div id="video-category" style="margin:6px 0"></div>
+    <div id="video-tags"></div>
+
+    <section style="margin-top:30px">
+      <h2 style="font-family:var(--font-display);margin-bottom:12px">Komentar</h2>
+      <div class="comment-box">
+        <textarea id="comment-input" placeholder="Tulis komentar... (harus login)"></textarea>
+        <button class="btn" id="btn-comment" style="margin-top:8px">Kirim</button>
+      </div>
+      <div id="comment-list" style="margin-top:16px"></div>
+    </section>
+  </div>
+
+  <aside>
+    <h2 style="font-family:var(--font-display);font-size:1.1rem;margin-bottom:12px">Video Terkait</h2>
+    <div id="related-list" style="display:flex;flex-direction:column;gap:12px"></div>
+  </aside>
+</main>
+
+<footer class="site-footer">
+  <div class="container footer-grid">
+    <div>NOKT HUB — © 2026</div>
+    <div class="footer-links">
+      <a href="privacy.html">Privacy Policy</a>
+      <a href="dmca.html">DMCA</a>
+      <a href="disclaimer.html">Disclaimer</a>
+    </div>
+  </div>
+</footer>
+
+<script type="module" src="js/firebase-config.js"></script>
+<script type="module" src="js/auth.js"></script>
+<script type="module" src="js/app.js"></script>
+<script type="module" src="js/watch.js"></script>
+</body>
+</html>

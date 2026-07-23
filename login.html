@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — NOKT HUB</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .auth-wrap{max-width:380px;margin:60px auto;padding:28px;background:var(--surface);
+    border:1px solid var(--border);border-radius:var(--radius)}
+  .auth-wrap h1{font-family:var(--font-display);margin-bottom:18px;text-align:center}
+  .auth-wrap input{width:100%;padding:10px 12px;margin-bottom:10px;background:var(--bg);
+    border:1px solid var(--border);border-radius:8px;color:var(--text)}
+  .auth-tabs{display:flex;gap:8px;margin-bottom:16px}
+  .auth-tabs button{flex:1;padding:8px;background:var(--bg);border:1px solid var(--border);
+    border-radius:8px;color:var(--text-muted);cursor:pointer}
+  .auth-tabs button.active{border-color:var(--accent);color:var(--accent)}
+  .msg{font-size:.8rem;color:var(--accent);margin-top:8px;min-height:16px}
+  .link-btn{background:none;border:none;color:var(--text-muted);font-size:.8rem;cursor:pointer;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="auth-wrap">
+  <h1>NOKT HUB</h1>
+  <button class="btn" id="google-login" style="width:100%;margin-bottom:14px">Login dengan Google</button>
+  <div class="auth-tabs">
+    <button id="tab-login" class="active">Login</button>
+    <button id="tab-register">Daftar</button>
+  </div>
+
+  <div id="form-login">
+    <input type="email" id="login-email" placeholder="Email">
+    <input type="password" id="login-password" placeholder="Password">
+    <button class="btn" id="btn-login" style="width:100%">Login</button>
+    <button class="link-btn" id="btn-forgot">Lupa password?</button>
+  </div>
+
+  <div id="form-register" style="display:none">
+    <input type="text" id="reg-name" placeholder="Nama">
+    <input type="email" id="reg-email" placeholder="Email">
+    <input type="password" id="reg-password" placeholder="Password">
+    <button class="btn" id="btn-register" style="width:100%">Daftar</button>
+  </div>
+
+  <div id="auth-msg" class="msg"></div>
+</div>
+
+<script type="module">
+import { loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword } from "./js/auth.js";
+
+const msg = document.getElementById("auth-msg");
+const setMsg = (t) => msg.textContent = t;
+
+document.getElementById("tab-login").addEventListener("click", () => {
+  document.getElementById("tab-login").classList.add("active");
+  document.getElementById("tab-register").classList.remove("active");
+  document.getElementById("form-login").style.display = "block";
+  document.getElementById("form-register").style.display = "none";
+});
+document.getElementById("tab-register").addEventListener("click", () => {
+  document.getElementById("tab-register").classList.add("active");
+  document.getElementById("tab-login").classList.remove("active");
+  document.getElementById("form-register").style.display = "block";
+  document.getElementById("form-login").style.display = "none";
+});
+
+document.getElementById("google-login").addEventListener("click", async () => {
+  try { await loginWithGoogle(); window.location.href = "index.html"; }
+  catch (e) { setMsg(e.message); }
+});
+
+document.getElementById("btn-login").addEventListener("click", async () => {
+  try {
+    await loginWithEmail(
+      document.getElementById("login-email").value,
+      document.getElementById("login-password").value
+    );
+    window.location.href = "index.html";
+  } catch (e) { setMsg(e.message); }
+});
+
+document.getElementById("btn-register").addEventListener("click", async () => {
+  try {
+    await registerWithEmail(
+      document.getElementById("reg-email").value,
+      document.getElementById("reg-password").value,
+      document.getElementById("reg-name").value
+    );
+    setMsg("Berhasil daftar! Cek email untuk verifikasi.");
+  } catch (e) { setMsg(e.message); }
+});
+
+document.getElementById("btn-forgot").addEventListener("click", async () => {
+  const email = document.getElementById("login-email").value;
+  if (!email) { setMsg("Isi email dulu untuk reset password."); return; }
+  try { await resetPassword(email); setMsg("Link reset password dikirim ke email."); }
+  catch (e) { setMsg(e.message); }
+});
+</script>
+</body>
+</html>

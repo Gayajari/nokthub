@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function isAdmin() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+    }
+
+    match /users/{uid} {
+      allow read: if true;
+      allow create: if isOwner(uid);
+      allow update: if isOwner(uid) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /videos/{videoId} {
+      allow read: if resource.data.status == "publish" || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /categories/{catId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /tags/{tagId} {
+      allow read: if true;
+      allow write: if isAdmin() || isSignedIn(); // isSignedIn utk update searchCount
+    }
+
+    match /comments/{commentId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin() ||
+        (isSignedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    match /views/{viewId} {
+      allow read: if false;
+      allow create: if true; // termasuk anon (tracked via anon id di client)
+      allow update: if true;
+    }
+
+    match /likes/{likeId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    match /shares/{shareId} {
+      allow read: if false;
+      allow create: if true;
+    }
+
+    match /favorites/{favId} {
+      allow read, write: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isSignedIn();
+    }
+
+    match /history/{histId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /search_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if true;
+    }
+
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn();
+    }
+
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /notifications/{notifId} {
+      allow read, write: if isSignedIn() && resource.data.uid == request.auth.uid;
+    }
+  }
+}
