@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — NOKT HUB</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .admin-layout{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+  .sidebar{background:var(--surface);border-right:1px solid var(--border);padding:20px}
+  .sidebar a{display:block;padding:10px 12px;border-radius:8px;color:var(--text-muted);margin-bottom:4px}
+  .sidebar a.active,.sidebar a:hover{background:var(--accent-dim);color:var(--accent)}
+  .admin-main{padding:24px}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:800px}
+  .form-grid.full{grid-template-columns:1fr}
+  label{font-size:.82rem;color:var(--text-muted);display:block;margin-bottom:4px}
+  input,textarea,select{
+    width:100%;padding:9px 12px;background:var(--surface);border:1px solid var(--border);
+    border-radius:8px;color:var(--text);font-family:var(--font-body);
+  }
+  table{width:100%;border-collapse:collapse;margin-top:16px}
+  th,td{padding:10px;border-bottom:1px solid var(--border);text-align:left;font-size:.85rem}
+  th{color:var(--text-muted);font-weight:500}
+  .row-actions button{margin-right:6px;font-size:.78rem}
+</style>
+</head>
+<body>
+<div id="admin-guard" style="padding:40px;text-align:center;display:none">
+  <h2>Akses ditolak</h2><p style="color:var(--text-muted)">Halaman ini khusus admin.</p>
+</div>
+
+<div id="admin-app" class="admin-layout" style="display:none">
+  <aside class="sidebar">
+    <div class="brand" style="margin-bottom:20px">NOKT HUB Admin</div>
+    <a href="#" class="active" data-tab="upload">Upload Video</a>
+    <a href="#" data-tab="videos">Semua Video</a>
+    <a href="#" data-tab="settings">Pengaturan</a>
+    <a href="../index.html" style="margin-top:20px;border-top:1px solid var(--border);padding-top:14px">← Kembali ke situs</a>
+  </aside>
+
+  <main class="admin-main">
+    <section id="tab-upload">
+      <h1 style="font-family:var(--font-display);margin-bottom:16px">Upload Video</h1>
+      <div class="form-grid">
+        <div><label>Judul</label><input id="f-title"></div>
+        <div><label>Kategori</label><input id="f-category" placeholder="mis. Anime, Film, Musik"></div>
+        <div class="form-grid full"><label>Deskripsi</label><textarea id="f-desc" rows="3"></textarea></div>
+        <div><label>Tag (pisahkan koma)</label><input id="f-tags" placeholder="anime, action, viral"></div>
+        <div><label>Status</label>
+          <select id="f-status"><option value="draft">Draft</option><option value="publish">Publish</option></select>
+        </div>
+        <div><label>Thumbnail URL</label><input id="f-thumb" placeholder="https://i.ibb.co/..."></div>
+        <div><label>Link Embed Video</label><input id="f-embed" placeholder="URL YouTube / Vimeo / GDrive / MP4"></div>
+        <div><label>SEO Title</label><input id="f-seo-title"></div>
+        <div><label>SEO Description</label><input id="f-seo-desc"></div>
+        <div><label>Meta Keyword</label><input id="f-keywords" placeholder="pisahkan koma"></div>
+        <div><label>Nama Admin</label><input id="f-admin-name" placeholder="Nama kamu"></div>
+      </div>
+      <button class="btn" id="btn-upload" style="margin-top:16px">Simpan Video</button>
+      <div id="upload-msg" style="margin-top:10px;color:var(--accent);font-size:.85rem"></div>
+    </section>
+
+    <section id="tab-videos" style="display:none">
+      <h1 style="font-family:var(--font-display);margin-bottom:16px">Semua Video</h1>
+      <table>
+        <thead><tr><th>Judul</th><th>Kategori</th><th>Status</th><th>View</th><th>Aksi</th></tr></thead>
+        <tbody id="video-table-body"></tbody>
+      </table>
+    </section>
+
+    <section id="tab-settings" style="display:none">
+      <h1 style="font-family:var(--font-display);margin-bottom:16px">Pengaturan Website</h1>
+      <div class="form-grid">
+        <div><label>Nama Website</label><input id="s-name"></div>
+        <div><label>Logo URL</label><input id="s-logo"></div>
+        <div><label>Favicon URL</label><input id="s-favicon"></div>
+        <div><label>Warna Tema</label><input id="s-theme" placeholder="#FF7A1A"></div>
+        <div><label>Email Kontak</label><input id="s-email"></div>
+        <div><label>Google Analytics ID</label><input id="s-ga"></div>
+      </div>
+      <button class="btn" id="btn-save-settings" style="margin-top:16px">Simpan Pengaturan</button>
+    </section>
+  </main>
+</div>
+
+<script type="module" src="../js/firebase-config.js"></script>
+<script type="module" src="../js/admin.js"></script>
+</body>
+</html>
