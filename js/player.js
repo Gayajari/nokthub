@@ -107,11 +107,7 @@ export function renderPlayer(container, embedUrl, opts = {}) {
   // Dikunci: hanya izinkan skrip player berjalan, TANPA izin
   // membuka tab baru atau mengalihkan halaman induk — ini yang
   // menutup celah redirect/popunder dari provider seperti vid9.live.
-  iframe.setAttribute(
-    "sandbox",
-    "allow-scripts allow-same-origin allow-presentation allow-forms"
-  );
-  
+ 
   iframe.allow =
     "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen";
 
