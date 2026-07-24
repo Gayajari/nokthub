@@ -103,7 +103,16 @@ export function renderPlayer(container, embedUrl, opts = {}) {
   iframe.className = "nokt-iframe-el";
   iframe.loading = "lazy";
   iframe.allowFullscreen = true;
-  iframe.referrerPolicy = "strict-origin-when-cross-origin";
+
+  // Dikunci: hanya izinkan skrip player berjalan, TANPA izin
+  // membuka tab baru atau mengalihkan halaman induk — ini yang
+  // menutup celah redirect/popunder dari provider seperti vid9.live.
+  iframe.setAttribute(
+    "sandbox",
+    "allow-scripts allow-same-origin allow-presentation allow-forms"
+  );
+  iframe.referrerPolicy = "no-referrer";
+
   iframe.allow =
     "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen";
 
