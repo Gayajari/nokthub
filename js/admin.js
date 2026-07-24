@@ -12,6 +12,9 @@ function slugify(str) {
     .replace(/(^-|-$)+/g, "");
 }
 
+// id video yang sedang diedit; null berarti mode "upload baru"
+let editingId = null;
+
 // ---------- Guard: hanya role === 'admin' yang bisa masuk ----------
 onAuthStateChanged(auth, async (user) => {
   if (!user) { window.location.href = "../login.html"; return; }
@@ -36,6 +39,15 @@ function initTabs() {
         document.getElementById(`tab-${t}`).style.display = t === link.dataset.tab ? "block" : "none";
       });
     });
+  });
+}
+
+function switchToTab(tabName) {
+  document.querySelectorAll(".sidebar a[data-tab]").forEach(a =>
+    a.classList.toggle("active", a.dataset.tab === tabName)
+  );
+  ["upload", "videos", "settings"].forEach(t => {
+    document.getElementById(`tab-${t}`).style.display = t === tabName ? "block" : "none";
   });
 }
 
@@ -66,7 +78,42 @@ async function upsertTags(tags) {
   }
 }
 
-// ---------- Upload video ----------
+// ---------- Isi form upload dengan data video yang mau diedit ----------
+async function loadVideoIntoForm(id) {
+  const snap = await getDoc(doc(db, "videos", id));
+  if (!snap.exists()) { alert("Video tidak ditemukan."); return; }
+  const v = snap.data();
+
+  editingId = id;
+
+  document.getElementById("f-title").value = v.title || "";
+  document.getElementById("f-category").value = v.category || "";
+  document.getElementById("f-desc").value = v.description || "";
+  document.getElementById("f-tags").value = (v.tags || []).join(", ");
+  document.getElementById("f-status").value = v.status || "draft";
+  document.getElementById("f-thumb").value = v.thumbnail || "";
+  document.getElementById("f-embed").value = v.embedUrl || "";
+  document.getElementById("f-seo-title").value = v.seoTitle || "";
+  document.getElementById("f-seo-desc").value = v.seoDescription || "";
+  document.getElementById("f-keywords").value = v.metaKeywords || "";
+  document.getElementById("f-admin-name").value = v.adminName || "";
+
+  const btn = document.getElementById("btn-upload");
+  if (btn) btn.textContent = "Simpan Perubahan";
+  const msg = document.getElementById("upload-msg");
+  if (msg) msg.textContent = `Mode edit: "${v.title}". Ubah field lalu klik Simpan Perubahan.`;
+
+  switchToTab("upload");
+}
+
+function resetUploadForm() {
+  editingId = null;
+  document.querySelectorAll("#tab-upload input, #tab-upload textarea").forEach(i => i.value = "");
+  const btn = document.getElementById("btn-upload");
+  if (btn) btn.textContent = "Upload Video";
+}
+
+// ---------- Upload / Simpan perubahan video ----------
 document.addEventListener("click", async (e) => {
   if (e.target.id !== "btn-upload") return;
   const title = document.getElementById("f-title").value.trim();
@@ -85,16 +132,30 @@ document.addEventListener("click", async (e) => {
   if (!title || !embedUrl) { msg.textContent = "Judul dan Link Embed wajib diisi."; return; }
 
   try {
-    await addDoc(collection(db, "videos"), {
-      title, slug: slugify(title), description, category, tags,
-      thumbnail, embedUrl, status, uploadedAt: serverTimestamp(), adminName,
-      seoTitle, seoDescription, metaKeywords,
-      viewCount: 0, likeCount: 0, shareCount: 0, searchTagCount: 0
-    });
-    await upsertCategory(category);
-    await upsertTags(tags);
-    msg.textContent = "Video berhasil disimpan.";
-    document.querySelectorAll("#tab-upload input, #tab-upload textarea").forEach(i => i.value = "");
+    if (editingId) {
+      // ---- Mode edit: perbarui dokumen yang sama, JANGAN bikin video baru ----
+      await updateDoc(doc(db, "videos", editingId), {
+        title, slug: slugify(title), description, category, tags,
+        thumbnail, embedUrl, status, adminName,
+        seoTitle, seoDescription, metaKeywords
+      });
+      await upsertCategory(category);
+      await upsertTags(tags);
+      msg.textContent = "Perubahan video berhasil disimpan.";
+      resetUploadForm();
+    } else {
+      // ---- Mode upload baru ----
+      await addDoc(collection(db, "videos"), {
+        title, slug: slugify(title), description, category, tags,
+        thumbnail, embedUrl, status, uploadedAt: serverTimestamp(), adminName,
+        seoTitle, seoDescription, metaKeywords,
+        viewCount: 0, likeCount: 0, shareCount: 0, searchTagCount: 0
+      });
+      await upsertCategory(category);
+      await upsertTags(tags);
+      msg.textContent = "Video berhasil disimpan.";
+      resetUploadForm();
+    }
     loadVideoTable();
   } catch (err) {
     msg.textContent = "Gagal menyimpan: " + err.message;
@@ -127,7 +188,11 @@ document.addEventListener("click", async (e) => {
   if (delId && confirm("Hapus video ini?")) {
     await deleteDoc(doc(db, "videos", delId));
     loadVideoTable();
+    return;
   }
-  // Edit sederhana: muat data ke form upload untuk diedit lalu simpan ulang (contoh dasar,
-  // untuk produksi sebaiknya buat form edit terpisah dengan updateDoc pada id yang sama)
+
+  const editId = e.target.dataset.edit;
+  if (editId) {
+    loadVideoIntoForm(editId);
+  }
 });
