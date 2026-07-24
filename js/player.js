@@ -111,8 +111,7 @@ export function renderPlayer(container, embedUrl, opts = {}) {
     "sandbox",
     "allow-scripts allow-same-origin allow-presentation allow-forms"
   );
-  iframe.referrerPolicy = "no-referrer";
-
+  
   iframe.allow =
     "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen";
 
