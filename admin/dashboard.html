@@ -23,6 +23,7 @@
   th,td{padding:10px;border-bottom:1px solid var(--border);text-align:left;font-size:.85rem}
   th{color:var(--text-muted);font-weight:500}
   .row-actions button{margin-right:6px;font-size:.78rem}
+  #thumb-preview img{width:160px;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid var(--border)}
 </style>
 </head>
 <body>
@@ -50,7 +51,13 @@
         <div><label>Status</label>
           <select id="f-status"><option value="draft">Draft</option><option value="publish">Publish</option></select>
         </div>
-        <div><label>Thumbnail URL</label><input id="f-thumb" placeholder="https://i.ibb.co/..."></div>
+        <div>
+          <label>Thumbnail</label>
+          <input type="file" id="f-thumb-file" accept="image/*">
+          <input type="hidden" id="f-thumb" value="">
+          <div id="thumb-preview" style="margin-top:8px"></div>
+          <div id="thumb-upload-status" style="font-size:.78rem;color:var(--text-muted);margin-top:4px"></div>
+        </div>
         <div><label>Link Embed Video</label><input id="f-embed" placeholder="URL YouTube / Vimeo / GDrive / MP4"></div>
         <div><label>SEO Title</label><input id="f-seo-title"></div>
         <div><label>SEO Description</label><input id="f-seo-desc"></div>
