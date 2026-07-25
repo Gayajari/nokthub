@@ -12,9 +12,6 @@ function slugify(str) {
     .replace(/(^-|-$)+/g, "");
 }
 
-// ============================================================
-// Upload gambar ke ImgBB via API key (menggantikan copy-paste link manual)
-// ============================================================
 const IMGBB_API_KEY = "32d216cda3c6dfc23f41e5e5853e382f";
 
 async function uploadToImgBB(file) {
@@ -53,7 +50,6 @@ function initThumbUpload() {
 }
 document.addEventListener("DOMContentLoaded", initThumbUpload);
 
-// ---------- Guard: hanya role === 'admin' yang bisa masuk ----------
 onAuthStateChanged(auth, async (user) => {
   if (!user) { window.location.href = "../login.html"; return; }
   const snap = await getDoc(doc(db, "users", user.uid));
@@ -80,7 +76,6 @@ function initTabs() {
   });
 }
 
-// ---------- Auto-create category & tags jika belum ada ----------
 async function upsertCategory(name) {
   if (!name) return;
   const slug = slugify(name);
@@ -107,7 +102,43 @@ async function upsertTags(tags) {
   }
 }
 
-// ---------- Upload video ----------
+let editingVideoId = null;
+
+function fillForm(v) {
+  document.getElementById("f-title").value = v.title || "";
+  document.getElementById("f-category").value = v.category || "";
+  document.getElementById("f-desc").value = v.description || "";
+  document.getElementById("f-tags").value = (v.tags || []).join(", ");
+  document.getElementById("f-status").value = v.status || "draft";
+  document.getElementById("f-thumb").value = v.thumbnail || "";
+  document.getElementById("f-embed").value = v.embedUrl || "";
+  document.getElementById("f-seo-title").value = v.seoTitle || "";
+  document.getElementById("f-seo-desc").value = v.seoDescription || "";
+  document.getElementById("f-keywords").value = v.metaKeywords || "";
+  document.getElementById("f-admin-name").value = v.adminName || "";
+  const preview = document.getElementById("thumb-preview");
+  preview.innerHTML = v.thumbnail ? `<img src="${v.thumbnail}" alt="preview thumbnail">` : "";
+}
+
+function resetForm() {
+  editingVideoId = null;
+  document.querySelectorAll("#tab-upload input, #tab-upload textarea").forEach(i => i.value = "");
+  document.getElementById("thumb-preview").innerHTML = "";
+  document.getElementById("thumb-upload-status").textContent = "";
+  document.getElementById("btn-upload").textContent = "Simpan Video";
+  document.getElementById("upload-msg").textContent = "";
+}
+
+async function startEdit(videoId) {
+  const snap = await getDoc(doc(db, "videos", videoId));
+  if (!snap.exists()) return;
+  editingVideoId = videoId;
+  fillForm(snap.data());
+  document.getElementById("btn-upload").textContent = "Update Video";
+  document.querySelector('.sidebar a[data-tab="upload"]').click();
+  window.scrollTo(0, 0);
+}
+
 document.addEventListener("click", async (e) => {
   if (e.target.id !== "btn-upload") return;
   const title = document.getElementById("f-title").value.trim();
@@ -126,25 +157,33 @@ document.addEventListener("click", async (e) => {
   if (!title || !embedUrl) { msg.textContent = "Judul dan Link Embed wajib diisi."; return; }
 
   try {
-    await addDoc(collection(db, "videos"), {
-      title, slug: slugify(title), description, category, tags,
-      thumbnail, embedUrl, status, uploadedAt: serverTimestamp(), adminName,
-      seoTitle, seoDescription, metaKeywords,
-      viewCount: 0, likeCount: 0, shareCount: 0, searchTagCount: 0
-    });
-    await upsertCategory(category);
-    await upsertTags(tags);
-    msg.textContent = "Video berhasil disimpan.";
-    document.querySelectorAll("#tab-upload input, #tab-upload textarea").forEach(i => i.value = "");
-    document.getElementById("thumb-preview").innerHTML = "";
-    document.getElementById("thumb-upload-status").textContent = "";
+    if (editingVideoId) {
+      await updateDoc(doc(db, "videos", editingVideoId), {
+        title, slug: slugify(title), description, category, tags,
+        thumbnail, embedUrl, status, adminName,
+        seoTitle, seoDescription, metaKeywords
+      });
+      await upsertCategory(category);
+      await upsertTags(tags);
+      msg.textContent = "Video berhasil diupdate.";
+    } else {
+      await addDoc(collection(db, "videos"), {
+        title, slug: slugify(title), description, category, tags,
+        thumbnail, embedUrl, status, uploadedAt: serverTimestamp(), adminName,
+        seoTitle, seoDescription, metaKeywords,
+        viewCount: 0, likeCount: 0, shareCount: 0, searchTagCount: 0
+      });
+      await upsertCategory(category);
+      await upsertTags(tags);
+      msg.textContent = "Video berhasil disimpan.";
+    }
+    resetForm();
     loadVideoTable();
   } catch (err) {
     msg.textContent = "Gagal menyimpan: " + err.message;
   }
 });
 
-// ---------- Tabel semua video (edit/hapus) ----------
 async function loadVideoTable() {
   const body = document.getElementById("video-table-body");
   if (!body) return;
@@ -166,6 +205,8 @@ async function loadVideoTable() {
 }
 
 document.addEventListener("click", async (e) => {
+  const editId = e.target.dataset.edit;
+  if (editId) { startEdit(editId); return; }
   const delId = e.target.dataset.del;
   if (delId && confirm("Hapus video ini?")) {
     await deleteDoc(doc(db, "videos", delId));
