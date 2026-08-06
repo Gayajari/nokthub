@@ -12,20 +12,105 @@ function slugify(str) {
     .replace(/(^-|-$)+/g, "");
 }
 
-const IMGBB_API_KEY = "32d216cda3c6dfc23f41e5e5853e382f";
+// ============================================================
+// UPLOAD GENERIK — dipakai bareng untuk thumbnail & video.
+// Semua endpoint/API key/format respons diambil dari settings/site
+// (diisi lewat tab Pengaturan), bukan hardcode di kode.
+// ============================================================
 
-async function uploadToImgBB(file) {
-  const formData = new FormData();
-  formData.append("image", file);
-  const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
-    method: "POST",
-    body: formData
-  });
-  const data = await res.json();
-  if (!data.success) throw new Error(data.error?.message || "Upload gagal");
-  return data.data.url;
+// Ambil nilai nested dari object pakai path string, mis. "data.url"
+function getByPath(obj, path) {
+  if (!path) return undefined;
+  return path.split(".").reduce((o, k) => (o ? o[k] : undefined), obj);
 }
 
+let settingsCache = null;
+async function getSiteSettings(forceRefresh = false) {
+  if (settingsCache && !forceRefresh) return settingsCache;
+  const snap = await getDoc(doc(db, "settings", "site"));
+  settingsCache = snap.exists() ? snap.data() : {};
+  return settingsCache;
+}
+
+/**
+ * Upload file ke host manapun (foto/video) berdasarkan config dinamis.
+ * config: {
+ *   endpoint, apiKey, urlField, fileFieldName,
+ *   authType: "query" | "header"   (default "query")
+ * }
+ */
+async function uploadToHost(file, config) {
+  const { endpoint, apiKey, urlField, fileFieldName = "file", authType = "query" } = config;
+  if (!endpoint || !apiKey) {
+    throw new Error("Endpoint atau API key belum diatur di tab Pengaturan.");
+  }
+
+  const formData = new FormData();
+  formData.append(fileFieldName, file);
+
+  let url = endpoint;
+  const headers = {};
+
+  if (authType === "header") {
+    // Umum dipakai host video: Authorization: Bearer xxx / AccessKey: xxx
+    headers["Authorization"] = `Bearer ${apiKey}`;
+    headers["AccessKey"] = apiKey; // sebagian provider pakai header custom ini
+  } else {
+    // Default: API key dikirim sebagai query param (pola umum host foto)
+    const sep = endpoint.includes("?") ? "&" : "?";
+    url = `${endpoint}${sep}key=${encodeURIComponent(apiKey)}`;
+  }
+
+  const res = await fetch(url, { method: "POST", body: formData, headers });
+  const data = await res.json();
+
+  if (data.success === false || data.error) {
+    throw new Error(data.error?.message || data.message || "Upload gagal.");
+  }
+
+  const resultUrl = getByPath(data, urlField || "data.url");
+  if (!resultUrl) {
+    throw new Error("URL tidak ditemukan di respons API. Cek isian 'Field URL di Respons' pada Pengaturan.");
+  }
+  return resultUrl;
+}
+
+/**
+ * Polling status upload video (opsional — hanya dipakai kalau provider
+ * butuh waktu proses/encoding sebelum video siap ditonton).
+ * statusConfig: { statusEndpoint, apiKey, authType, urlField, statusField }
+ * Berhenti otomatis setelah ~2 menit (24x cek, jeda 5 detik) supaya tidak nge-hang.
+ */
+async function pollVideoStatus(idOrUrl, statusConfig) {
+  const { statusEndpoint, apiKey, authType = "query", urlField, statusField, readyValue = "ready" } = statusConfig;
+  if (!statusEndpoint) return idOrUrl; // tidak ada endpoint status → anggap sudah final
+
+  const maxAttempts = 24;
+  const delayMs = 5000;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    let url = `${statusEndpoint}${statusEndpoint.includes("?") ? "&" : "?"}id=${encodeURIComponent(idOrUrl)}`;
+    const headers = {};
+    if (authType === "header") {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+      headers["AccessKey"] = apiKey;
+    } else {
+      url += `&key=${encodeURIComponent(apiKey)}`;
+    }
+
+    const res = await fetch(url, { headers });
+    const data = await res.json();
+    const status = getByPath(data, statusField || "status");
+
+    if (status === readyValue) {
+      return getByPath(data, urlField || "data.url") || idOrUrl;
+    }
+    await new Promise(r => setTimeout(r, delayMs));
+  }
+  throw new Error("Video masih diproses, coba cek lagi beberapa saat lagi.");
+}
+
+// ---------- Upload Thumbnail ----------
 function initThumbUpload() {
   const fileInput = document.getElementById("f-thumb-file");
   const hiddenInput = document.getElementById("f-thumb");
@@ -39,7 +124,14 @@ function initThumbUpload() {
     status.textContent = "Mengupload gambar...";
     preview.innerHTML = "";
     try {
-      const url = await uploadToImgBB(file);
+      const s = await getSiteSettings(true);
+      const url = await uploadToHost(file, {
+        endpoint: s.thumbEndpoint,
+        apiKey: s.thumbApiKey,
+        urlField: s.thumbField,
+        fileFieldName: "image",
+        authType: "query" // host foto pada umumnya pakai query param
+      });
       hiddenInput.value = url;
       preview.innerHTML = `<img src="${url}" alt="preview thumbnail">`;
       status.textContent = "Berhasil diupload.";
@@ -48,8 +140,56 @@ function initThumbUpload() {
     }
   });
 }
-document.addEventListener("DOMContentLoaded", initThumbUpload);
 
+// ---------- Upload Video dari Galeri ----------
+function initVideoUpload() {
+  const fileInput = document.getElementById("f-video-file");
+  const embedInput = document.getElementById("f-embed");
+  const status = document.getElementById("video-upload-status");
+  if (!fileInput) return;
+
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    status.textContent = "Mengupload video...";
+    try {
+      const s = await getSiteSettings(true);
+      let url = await uploadToHost(file, {
+        endpoint: s.videoEndpoint,
+        apiKey: s.videoApiKey,
+        urlField: s.videoField,
+        fileFieldName: "file",
+        authType: s.videoAuthType || "query"
+      });
+
+      if (s.videoStatusEndpoint) {
+        status.textContent = "Video sedang diproses server, mohon tunggu...";
+        url = await pollVideoStatus(url, {
+          statusEndpoint: s.videoStatusEndpoint,
+          apiKey: s.videoApiKey,
+          authType: s.videoAuthType || "query",
+          urlField: s.videoField,
+          statusField: s.videoStatusField,
+          readyValue: s.videoReadyValue || "ready"
+        });
+      }
+
+      embedInput.value = url; // otomatis isi field embed manual, tetap bisa diedit
+      status.textContent = "Video berhasil diupload, link embed terisi otomatis.";
+    } catch (err) {
+      status.textContent = "Gagal upload video: " + err.message;
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  initThumbUpload();
+  initVideoUpload();
+});
+
+// ============================================================
+// AUTH GUARD
+// ============================================================
 onAuthStateChanged(auth, async (user) => {
   if (!user) { window.location.href = "../login.html"; return; }
   const snap = await getDoc(doc(db, "users", user.uid));
@@ -61,6 +201,7 @@ onAuthStateChanged(auth, async (user) => {
   document.getElementById("admin-app").style.display = "grid";
   initTabs();
   loadVideoTable();
+  loadSettings();
 });
 
 function initTabs() {
@@ -76,6 +217,63 @@ function initTabs() {
   });
 }
 
+// ============================================================
+// PENGATURAN (Data Utama) — termasuk API key thumbnail & video
+// ============================================================
+async function loadSettings() {
+  const s = await getSiteSettings(true);
+  const map = {
+    "s-name": s.siteName,
+    "s-logo": s.logoUrl,
+    "s-favicon": s.favicon,
+    "s-theme": s.themeColor,
+    "s-email": s.contactEmail,
+    "s-ga": s.gaId,
+    "s-thumb-api-key": s.thumbApiKey,
+    "s-thumb-endpoint": s.thumbEndpoint,
+    "s-thumb-field": s.thumbField,
+    "s-video-api-key": s.videoApiKey,
+    "s-video-endpoint": s.videoEndpoint,
+    "s-video-field": s.videoField,
+    "s-video-auth-type": s.videoAuthType,
+    "s-video-status-endpoint": s.videoStatusEndpoint,
+    "s-video-status-field": s.videoStatusField,
+    "s-video-ready-value": s.videoReadyValue
+  };
+  Object.entries(map).forEach(([id, val]) => {
+    const el = document.getElementById(id);
+    if (el && val) el.value = val;
+  });
+}
+
+document.addEventListener("click", async (e) => {
+  if (e.target.id !== "btn-save-settings") return;
+  const val = (id) => document.getElementById(id)?.value.trim() || "";
+  await setDoc(doc(db, "settings", "site"), {
+    siteName: val("s-name"),
+    logoUrl: val("s-logo"),
+    favicon: val("s-favicon"),
+    themeColor: val("s-theme"),
+    contactEmail: val("s-email"),
+    gaId: val("s-ga"),
+    thumbApiKey: val("s-thumb-api-key"),
+    thumbEndpoint: val("s-thumb-endpoint"),
+    thumbField: val("s-thumb-field"),
+    videoApiKey: val("s-video-api-key"),
+    videoEndpoint: val("s-video-endpoint"),
+    videoField: val("s-video-field"),
+    videoAuthType: val("s-video-auth-type"),
+    videoStatusEndpoint: val("s-video-status-endpoint"),
+    videoStatusField: val("s-video-status-field"),
+    videoReadyValue: val("s-video-ready-value")
+  }, { merge: true });
+  settingsCache = null; // reset cache biar upload berikutnya pakai data terbaru
+  alert("Pengaturan tersimpan.");
+});
+
+// ============================================================
+// KATEGORI & TAG (tidak berubah)
+// ============================================================
 async function upsertCategory(name) {
   if (!name) return;
   const slug = slugify(name);
@@ -102,6 +300,9 @@ async function upsertTags(tags) {
   }
 }
 
+// ============================================================
+// FORM VIDEO (tidak berubah)
+// ============================================================
 let editingVideoId = null;
 
 function fillForm(v) {
@@ -125,6 +326,8 @@ function resetForm() {
   document.querySelectorAll("#tab-upload input, #tab-upload textarea").forEach(i => i.value = "");
   document.getElementById("thumb-preview").innerHTML = "";
   document.getElementById("thumb-upload-status").textContent = "";
+  const videoStatus = document.getElementById("video-upload-status");
+  if (videoStatus) videoStatus.textContent = "";
   document.getElementById("btn-upload").textContent = "Simpan Video";
   document.getElementById("upload-msg").textContent = "";
 }
