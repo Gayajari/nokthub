@@ -110,4 +110,152 @@ async function countView() {
     const now = Date.now();
     if (snap.exists()) {
       const last = snap.data().viewedAt?.toMillis?.() || 0;
-      if (now - last < 24 * 60 * 60 * 10
+      if (now - last < 24 * 60 * 60 * 1000) return; // sudah dihitung dalam 24 jam
+    }
+    await setDoc(ref, { videoId, uid: uidOrAnon, viewedAt: serverTimestamp() });
+    await updateDoc(doc(db, "videos", videoId), { viewCount: increment(1) });
+  } catch (err) {
+    console.error("Gagal menghitung view:", err.message);
+  }
+}
+
+function getAnonId() {
+  let id = localStorage.getItem("nokt_anon_id");
+  if (!id) {
+    id = "anon_" + Math.random().toString(36).slice(2);
+    localStorage.setItem("nokt_anon_id", id);
+  }
+  return id;
+}
+
+// ---------- Like ----------
+document.getElementById("btn-like").addEventListener("click", async () => {
+  if (!currentUser) { window.location.href = "login.html"; return; }
+  try {
+    const likeRef = doc(db, "likes", `${videoId}_${currentUser.uid}`);
+    const snap = await getDoc(likeRef);
+    if (snap.exists()) return; // sudah like
+    await setDoc(likeRef, { videoId, uid: currentUser.uid });
+    await updateDoc(doc(db, "videos", videoId), { likeCount: increment(1) });
+  } catch (err) {
+    console.error("Gagal menyimpan like:", err.message);
+  }
+});
+
+// ---------- Share ----------
+document.querySelectorAll("[data-share]").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const url = window.location.href;
+    const platform = btn.dataset.share;
+    if (platform === "copy") {
+      await navigator.clipboard.writeText(url);
+      btn.textContent = "Tersalin!";
+      setTimeout(() => btn.textContent = "Copy Link", 1500);
+    } else if (platform === "whatsapp") {
+      window.open(`https://wa.me/?text=${encodeURIComponent(url)}`, "_blank");
+    } else if (platform === "telegram") {
+      window.open(`https://t.me/share/url?url=${encodeURIComponent(url)}`, "_blank");
+    } else if (platform === "facebook") {
+      window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`, "_blank");
+    } else if (platform === "twitter") {
+      window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}`, "_blank");
+    } else if (platform === "native" && navigator.share) {
+      navigator.share({ title: videoData?.title, url });
+    }
+    try {
+      await addDoc(collection(db, "shares"), {
+        videoId, uid: currentUser?.uid || null, platform, sharedAt: serverTimestamp()
+      });
+      await updateDoc(doc(db, "videos", videoId), { shareCount: increment(1) });
+    } catch (err) {
+      console.error("Gagal mencatat share:", err.message);
+    }
+  });
+});
+
+// ---------- Related videos ----------
+async function loadRelated() {
+  const wrap = document.getElementById("related-list");
+  const q = query(
+    collection(db, "videos"),
+    where("status", "==", "publish"),
+    where("category", "==", videoData.category || ""),
+    limit(6)
+  );
+  const snap = await getDocs(q);
+  const items = snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(v => v.id !== videoId);
+  wrap.innerHTML = items.map(v => `
+    <a href="watch.html?id=${v.id}" style="display:flex;gap:10px;text-decoration:none;color:inherit">
+      <img src="${v.thumbnail}" style="width:120px;aspect-ratio:16/9;object-fit:cover;border-radius:6px" loading="lazy">
+      <div>
+        <div style="font-size:.85rem;font-weight:600;line-height:1.3">${escapeHtml(v.title)}</div>
+        <div style="font-size:.72rem;color:var(--text-muted)">${(v.viewCount||0).toLocaleString('id-ID')} view</div>
+      </div>
+    </a>`).join("") || `<p style="color:var(--text-muted)">Belum ada video terkait</p>`;
+}
+
+// ---------- Comments ----------
+function loadComments() {
+  const list = document.getElementById("comment-list");
+  const q = query(
+    collection(db, "comments"),
+    where("videoId", "==", videoId),
+    orderBy("createdAt", "desc")
+  );
+  getDocs(q).then(snap => {
+    const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    list.innerHTML = comments.filter(c => !c.parentId).map(c => renderComment(c, comments)).join("")
+      || `<p style="color:var(--text-muted)">Belum ada komentar. Jadilah yang pertama!</p>`;
+  });
+}
+
+function renderComment(c, all) {
+  const replies = all.filter(r => r.parentId === c.id);
+  const isOwner = currentUser && currentUser.uid === c.uid;
+  return `
+    <div class="comment-item">
+      <img src="${c.userPhoto || 'https://via.placeholder.com/34'}" alt="">
+      <div style="flex:1">
+        <div style="font-size:.85rem;font-weight:600">${escapeHtml(c.userName || 'User')}</div>
+        <div style="font-size:.85rem;margin:4px 0">${escapeHtml(c.text)}</div>
+        <div style="display:flex;gap:10px;font-size:.72rem;color:var(--text-muted)">
+          <span>👍 ${c.likeCount||0}</span>
+          <span>👎 ${c.dislikeCount||0}</span>
+          ${isOwner ? `<span style="cursor:pointer" data-del="${c.id}">Hapus</span>` : ""}
+        </div>
+        ${replies.map(r => `
+          <div style="margin-top:8px;padding-left:14px;border-left:2px solid var(--border)">
+            <div style="font-size:.8rem;font-weight:600">${escapeHtml(r.userName)}</div>
+            <div style="font-size:.8rem">${escapeHtml(r.text)}</div>
+          </div>`).join("")}
+      </div>
+    </div>`;
+}
+
+document.getElementById("btn-comment").addEventListener("click", async () => {
+  if (!currentUser) { window.location.href = "login.html"; return; }
+  const input = document.getElementById("comment-input");
+  const text = input.value.trim();
+  if (!text) return;
+  await addDoc(collection(db, "comments"), {
+    videoId, uid: currentUser.uid,
+    userName: currentUser.displayName || "User",
+    userPhoto: currentUser.photoURL || "",
+    text, parentId: null, likeCount: 0, dislikeCount: 0,
+    createdAt: serverTimestamp()
+  });
+  input.value = "";
+  loadComments();
+});
+
+document.getElementById("comment-list").addEventListener("click", async (e) => {
+  const delId = e.target.dataset.del;
+  if (delId) {
+    await deleteDoc(doc(db, "comments", delId));
+    loadComments();
+  }
+});
+
+loadVideo();
