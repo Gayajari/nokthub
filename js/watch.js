@@ -102,20 +102,33 @@ async function saveHistory(position) {
 
 // ---------- View counting: 1 per akun/anon-id per 24 jam ----------
 // (logika ini tidak diubah sama sekali dari versi sebelumnya)
+
 async function countView() {
-  const anonId = getAnonId();
-  const uidOrAnon = currentUser ? currentUser.uid : anonId;
-  const viewDocId = `${videoId}_${uidOrAnon}`;
-  const ref = doc(db, "views", viewDocId);
-  const snap = await getDoc(ref);
-  const now = Date.now();
-  if (snap.exists()) {
-    const last = snap.data().viewedAt?.toMillis?.() || 0;
-    if (now - last < 24 * 60 * 60 * 1000) return; // sudah dihitung dalam 24 jam
+  try {
+    const anonId = getAnonId();
+    const uidOrAnon = currentUser ? currentUser.uid : anonId;
+    const viewDocId = `${videoId}_${uidOrAnon}`;
+    const ref = doc(db, "views", viewDocId);
+    const snap = await getDoc(ref);
+    const now = Date.now();
+    if (snap.exists()) {
+      const last = snap.data().viewedAt?.toMillis?.() || 0;
+      if (now - last < 24 * 60 * 60 * 1000) return; // sudah dihitung dalam 24 jam
+    }
+    await setDoc(ref, { videoId, uid: uidOrAnon, viewedAt: serverTimestamp() });
+    await updateDoc(doc(db, "videos", videoId), { viewCount: increment(1) });
+  } catch (err) {
+    // Sebelumnya error di sini "ketelan" diam-diam dan bikin fitur setelahnya
+    // (related video, komentar) ikut gagal jalan tanpa penjelasan. Sekarang
+    // ketahuan jelas di Console kalau ada masalah izin/koneksi.
+    console.error("Gagal menghitung view:", err.message);
   }
-  await setDoc(ref, { videoId, uid: uidOrAnon, viewedAt: serverTimestamp() });
-  await updateDoc(doc(db, "videos", videoId), { viewCount: increment(1) });
 }
+
+
+
+
+
 
 function getAnonId() {
   let id = localStorage.getItem("nokt_anon_id");
