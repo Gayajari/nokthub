@@ -16,7 +16,7 @@ let videoData = null;
 let unsubscribeStats = null; // listener realtime view/like, dibersihkan saat pindah halaman
 
 const MIN_WATCH_SECONDS = 10; // minimal detik nonton sebelum view dihitung
-const VIEW_WINDOW_MS = 15 * 60 * 1000; // jeda 15 menit sebelum view dihitung ulang (sebelumnya 1 jam / 24 jam)
+const VIEW_WINDOW_MS = 5 * 60 * 1000; // jeda 5 menit sebelum view dihitung ulang (sebelumnya 15 menit / 1 jam / 24 jam)
 let viewCounted = false; // biar countView cuma jalan sekali per sesi nonton
 
 onAuthStateChanged(auth, (u) => currentUser = u);
@@ -118,7 +118,7 @@ async function countView() {
     const now = Date.now();
     if (snap.exists()) {
       const last = snap.data().viewedAt?.toMillis?.() || 0;
-      if (now - last < VIEW_WINDOW_MS) return; // sudah dihitung dalam 15 menit terakhir
+      if (now - last < VIEW_WINDOW_MS) return; // sudah dihitung dalam 5 menit terakhir
     }
     await setDoc(ref, { videoId, uid: uidOrAnon, viewedAt: serverTimestamp() });
     await updateDoc(doc(db, "videos", videoId), { viewCount: increment(1) });
