@@ -10,6 +10,17 @@ const PAGE_SIZE = 12;
 let allPublishedVideos = []; // cache client-side untuk paginasi + search instan
 let currentPage = 1;
 
+const PLACEHOLDER_THUMB = 'https://via.placeholder.com/320x180/141416/9A9A9E?text=No+Image';
+let siteSettings = {}; // dimuat sekali dari settings/site (dipakai untuk Thumbnail Default)
+
+// ---------- Muat pengaturan situs (untuk Thumbnail Default, dll) ----------
+async function loadSiteSettings() {
+  try {
+    const snap = await getDoc(doc(db, "settings", "site"));
+    siteSettings = snap.exists() ? snap.data() : {};
+  } catch (e) { siteSettings = {}; }
+}
+
 // ---------- Load semua video publish (realtime) ----------
 function listenVideos(onUpdate) {
   const q = query(
@@ -32,12 +43,50 @@ function computePopularScore(v) {
        + (v.shareCount || 0) * 0.1;
 }
 
+// ---------- Thumbnail fallback berlapis ----------
+// 1) Manual (v.thumbnail) -> 2) Otomatis dari metadata provider (saat ini: YouTube)
+// -> 3) Thumbnail Default dari Website Settings -> 4) Placeholder bawaan.
+// Kalau gambar yang dipilih gagal dimuat (link rusak), otomatis geser ke
+// lapisan berikutnya lewat onerror, jadi tidak pernah ada gambar pecah.
+function extractYoutubeAutoThumb(embedUrl) {
+  if (!embedUrl) return null;
+  const m = embedUrl.match(/youtu\.be\/([a-zA-Z0-9_-]+)/)
+         || embedUrl.match(/[?&]v=([a-zA-Z0-9_-]+)/)
+         || embedUrl.match(/embed\/([a-zA-Z0-9_-]+)/);
+  return m ? `https://img.youtube.com/vi/${m[1]}/hqdefault.jpg` : null;
+}
+
+function buildThumbChain(v) {
+  const chain = [];
+  if (v.thumbnail) chain.push(v.thumbnail);
+  const auto = extractYoutubeAutoThumb(v.embedUrl);
+  if (auto) chain.push(auto);
+  if (siteSettings.defaultThumbnail) chain.push(siteSettings.defaultThumbnail);
+  chain.push(PLACEHOLDER_THUMB);
+  return chain;
+}
+
+// Dipanggil dari onerror inline di <img>, digantung ke window supaya bisa
+// diakses dari atribut HTML inline.
+window.__nokthubThumbFallback = function (imgEl, videoId) {
+  const v = allPublishedVideos.find(x => x.id === videoId);
+  if (!v) { imgEl.src = PLACEHOLDER_THUMB; return; }
+  const chain = buildThumbChain(v);
+  const step = parseInt(imgEl.dataset.fallbackStep || "0", 10) + 1;
+  if (chain[step]) {
+    imgEl.dataset.fallbackStep = step;
+    imgEl.src = chain[step];
+  }
+};
+
 function renderVideoCard(v) {
   const url = `watch.html?id=${v.id}`;
+  const chain = buildThumbChain(v);
   return `
     <a class="video-card" href="${url}">
       <div class="thumb-wrap">
-        <img src="${v.thumbnail || 'https://via.placeholder.com/320x180/141416/9A9A9E?text=No+Image'}"
+        <img src="${chain[0]}" data-fallback-step="0"
+             onerror="window.__nokthubThumbFallback(this, '${v.id}')"
              alt="${escapeHtml(v.title)}" loading="lazy">
       </div>
       <div class="card-body">
@@ -106,6 +155,8 @@ function emptyState(msg){
 }
 
 // ---------- Hero slider (video terbaru) ----------
+// Ditambah: auto-rotate 6 detik, swipe mobile, tombol panah, transisi lebih
+// halus, dan tetap aman kalau cuma ada 1 video (tanpa error).
 function renderHero() {
   const wrap = document.getElementById("hero-slider");
   const dotsWrap = document.getElementById("hero-dots");
@@ -117,7 +168,7 @@ function renderHero() {
 
   wrap.innerHTML = slides.map((v,i) => `
     <a class="hero-slide ${i===0?'active':''}" data-i="${i}" href="watch.html?id=${v.id}"
-       style="background-image:url('${v.thumbnail}')">
+       style="background-image:url('${v.thumbnail || buildThumbChain(v)[0]}');transition:opacity .6s ease, transform .6s ease;">
       <div class="hero-info">
         <div class="eyebrow">Video Terbaru</div>
         <h1>${escapeHtml(v.title)}</h1>
@@ -129,21 +180,71 @@ function renderHero() {
   dotsWrap.innerHTML = slides.map((_,i) =>
     `<span data-i="${i}" class="${i===0?'active':''}"></span>`).join("");
 
+  // Bersihkan tombol panah lama (kalau ada dari render sebelumnya) sebelum bikin baru
+  wrap.parentElement.querySelectorAll(".hero-nav-arrow").forEach(el => el.remove());
+
   let idx = 0;
-  const rotate = () => {
-    idx = (idx + 1) % slides.length;
+  const goTo = (n) => {
+    idx = (n + slides.length) % slides.length;
     wrap.querySelectorAll(".hero-slide").forEach((s,i)=> s.classList.toggle("active", i===idx));
     dotsWrap.querySelectorAll("span").forEach((s,i)=> s.classList.toggle("active", i===idx));
   };
-  let timer = setInterval(rotate, 5000);
+  const rotate = () => goTo(idx + 1);
+
+  let timer = null;
+  const startAutoplay = () => { if (slides.length > 1) timer = setInterval(rotate, 6000); };
+  const stopAutoplay = () => { if (timer) clearInterval(timer); };
+  startAutoplay();
+
   dotsWrap.querySelectorAll("span").forEach(dot => {
     dot.addEventListener("click", () => {
-      idx = parseInt(dot.dataset.i);
-      wrap.querySelectorAll(".hero-slide").forEach((s,i)=> s.classList.toggle("active", i===idx));
-      dotsWrap.querySelectorAll("span").forEach((s,i)=> s.classList.toggle("active", i===idx));
-      clearInterval(timer);
-      timer = setInterval(rotate, 5000);
+      goTo(parseInt(dot.dataset.i));
+      stopAutoplay(); startAutoplay();
     });
+  });
+
+  // Tombol panah kiri/kanan (dibuat via JS, style inline supaya tidak perlu ubah CSS)
+  if (slides.length > 1) {
+    const mkArrow = (dir, symbol) => {
+      const btn = document.createElement("button");
+      btn.className = "hero-nav-arrow";
+      btn.type = "button";
+      btn.setAttribute("aria-label", dir === "prev" ? "Sebelumnya" : "Berikutnya");
+      btn.textContent = symbol;
+      btn.style.cssText = `
+        position:absolute; top:50%; ${dir==="prev"?"left:12px;":"right:12px;"}
+        transform:translateY(-50%); z-index:5; width:38px; height:38px;
+        border-radius:50%; border:1px solid rgba(255,255,255,.25);
+        background:rgba(0,0,0,.45); color:#fff; font-size:18px; line-height:1;
+        cursor:pointer; display:flex; align-items:center; justify-content:center;`;
+      btn.addEventListener("click", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        goTo(idx + (dir === "prev" ? -1 : 1));
+        stopAutoplay(); startAutoplay();
+      });
+      return btn;
+    };
+    wrap.parentElement.style.position = wrap.parentElement.style.position || "relative";
+    wrap.parentElement.appendChild(mkArrow("prev", "‹"));
+    wrap.parentElement.appendChild(mkArrow("next", "›"));
+  }
+
+  // Swipe mobile
+  let touchStartX = 0;
+  wrap.addEventListener("touchstart", (e) => { touchStartX = e.touches[0].clientX; stopAutoplay(); }, { passive: true });
+  wrap.addEventListener("touchend", (e) => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 40) goTo(idx + (dx < 0 ? 1 : -1));
+    startAutoplay();
+  }, { passive: true });
+
+  // Panah keyboard (kiri/kanan), aktif saat hero dalam tampilan
+  document.addEventListener("keydown", (e) => {
+    const rect = wrap.getBoundingClientRect();
+    const inView = rect.top < window.innerHeight && rect.bottom > 0;
+    if (!inView) return;
+    if (e.key === "ArrowLeft") { goTo(idx - 1); stopAutoplay(); startAutoplay(); }
+    if (e.key === "ArrowRight") { goTo(idx + 1); stopAutoplay(); startAutoplay(); }
   });
 }
 
@@ -200,7 +301,8 @@ function initSearch() {
 }
 
 // ---------- Init ----------
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  await loadSiteSettings();
   initSearch();
   listenVideos(() => {
     renderHero();
