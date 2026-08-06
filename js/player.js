@@ -116,10 +116,46 @@ export function renderPlayer(container, embedUrl, opts = {}) {
   return iframe;
 }
 
-export function trackResumePosition(videoEl, onTick) {
-  if (!videoEl || videoEl.tagName !== "VIDEO") return;
+// ---------- Tracking posisi/durasi tonton (semua tipe player) ----------
+// - <video> native: pakai event "timeupdate" (akurat, sesuai posisi asli).
+// - <iframe> (YouTube/Vimeo/Gdrive/embed luar lain): browser tidak bisa
+//   mengintip play-state di dalam iframe cross-origin, jadi dipakai
+//   pendekatan "jam berjalan" via setInterval selama iframe masih
+//   ada di DOM & tab masih aktif. Bukan 100% akurat (tidak tahu kalau
+//   user pause di dalam iframe), tapi cukup untuk syarat minimal
+//   nonton (MIN_WATCH_SECONDS) & anti-spam view di watch.js.
+export function trackResumePosition(el, onTick) {
+  if (!el) return;
 
-  videoEl.addEventListener("timeupdate", () => {
-    onTick(Math.floor(videoEl.currentTime));
-  });
+  // --- Native <video> ---
+  if (el.tagName === "VIDEO") {
+    el.addEventListener("timeupdate", () => {
+      onTick(Math.floor(el.currentTime));
+    });
+    return;
+  }
+
+  // --- <iframe> (YouTube/Vimeo/Gdrive/embed luar apa pun) ---
+  if (el.tagName === "IFRAME") {
+    let elapsed = 0;
+    const TICK_MS = 1000; // update tiap 1 detik
+
+    const timer = setInterval(() => {
+      // Hanya hitung waktu selagi tab aktif & iframe masih ada di DOM,
+      // supaya tidak nambah view saat user pindah tab / tutup halaman.
+      if (document.hidden || !document.body.contains(el)) return;
+
+      elapsed += 1;
+      onTick(elapsed);
+    }, TICK_MS);
+
+    // Bersihkan interval saat iframe dilepas dari halaman (mis. pindah video)
+    const cleanup = () => clearInterval(timer);
+    window.addEventListener("beforeunload", cleanup);
+
+    // Simpan referensi supaya bisa dibersihkan manual kalau perlu
+    el._noktTrackCleanup = cleanup;
+
+    return;
+  }
 }
