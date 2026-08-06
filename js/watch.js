@@ -4,7 +4,7 @@
 import {
   db, auth, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc,
   deleteDoc, query, where, orderBy, limit, increment, serverTimestamp,
-  onAuthStateChanged
+  onAuthStateChanged, onSnapshot
 } from "./firebase-config.js";
 import { renderPlayer, trackResumePosition } from "./player.js";
 import { escapeHtml, renderVideoCard } from "./app.js";
@@ -13,6 +13,7 @@ const params = new URLSearchParams(window.location.search);
 const videoId = params.get("id");
 let currentUser = null;
 let videoData = null;
+let unsubscribeStats = null; // listener realtime view/like, dibersihkan saat pindah halaman
 
 onAuthStateChanged(auth, (u) => currentUser = u);
 
@@ -26,7 +27,8 @@ async function loadVideo() {
   }
   videoData = { id: snap.id, ...snap.data() };
   renderVideoInfo();
-  await countView();
+  await countView(); // logika anti-spam TIDAK diubah
+  listenVideoStats(); // baru: view/like update realtime tanpa reload
   await loadRelated();
   loadComments();
 }
@@ -75,6 +77,21 @@ function renderVideoInfo() {
   });
 }
 
+// ---------- Realtime stats (view/like) tanpa reload ----------
+// Hanya "mendengar" perubahan dan update tampilan — sama sekali tidak
+// menambah write ke Firestore, jadi tidak menambah beban/biaya.
+function listenVideoStats() {
+  if (unsubscribeStats) unsubscribeStats(); // hindari listener dobel kalau loadVideo terpanggil lagi
+  unsubscribeStats = onSnapshot(doc(db, "videos", videoId), (snap) => {
+    if (!snap.exists()) return;
+    const d = snap.data();
+    videoData = { id: videoId, ...d };
+    document.getElementById("stat-views").textContent = `${(d.viewCount||0).toLocaleString('id-ID')} view`;
+    document.getElementById("stat-likes").textContent = `${(d.likeCount||0).toLocaleString('id-ID')} like`;
+  });
+}
+window.addEventListener("beforeunload", () => { if (unsubscribeStats) unsubscribeStats(); });
+
 async function saveHistory(position) {
   if (!currentUser) return;
   const ref = doc(db, "history", `${currentUser.uid}_${videoId}`);
@@ -84,6 +101,7 @@ async function saveHistory(position) {
 }
 
 // ---------- View counting: 1 per akun/anon-id per 24 jam ----------
+// (logika ini tidak diubah sama sekali dari versi sebelumnya)
 async function countView() {
   const anonId = getAnonId();
   const uidOrAnon = currentUser ? currentUser.uid : anonId;
@@ -116,8 +134,8 @@ document.getElementById("btn-like").addEventListener("click", async () => {
   if (snap.exists()) return; // sudah like
   await setDoc(likeRef, { videoId, uid: currentUser.uid });
   await updateDoc(doc(db, "videos", videoId), { likeCount: increment(1) });
-  document.getElementById("stat-likes").textContent =
-    `${((videoData.likeCount||0)+1).toLocaleString('id-ID')} like`;
+  // Tidak perlu update manual lagi di sini — listenVideoStats() akan
+  // otomatis nangkep perubahan ini dan update tampilan.
 });
 
 // ---------- Share ----------
