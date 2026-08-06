@@ -15,6 +15,10 @@ let currentUser = null;
 let videoData = null;
 let unsubscribeStats = null; // listener realtime view/like, dibersihkan saat pindah halaman
 
+const MIN_WATCH_SECONDS = 10; // minimal detik nonton sebelum view dihitung
+const VIEW_WINDOW_MS = 15 * 60 * 1000; // jeda 15 menit sebelum view dihitung ulang (sebelumnya 1 jam / 24 jam)
+let viewCounted = false; // biar countView cuma jalan sekali per sesi nonton
+
 onAuthStateChanged(auth, (u) => currentUser = u);
 
 async function loadVideo() {
@@ -27,7 +31,7 @@ async function loadVideo() {
   }
   videoData = { id: snap.id, ...snap.data() };
   renderVideoInfo();
-  await countView(); // logika anti-spam TIDAK diubah
+  // countView() dipindah, sekarang dipanggil dari trackResumePosition setelah nonton 10 detik
   listenVideoStats(); // view/like update realtime tanpa reload
   await loadRelated();
   loadComments();
@@ -73,6 +77,10 @@ function renderVideoInfo() {
   trackResumePosition(el, (t) => {
     localStorage.setItem(resumeKey, t);
     if (currentUser) saveHistory(t);
+    if (!viewCounted && t >= MIN_WATCH_SECONDS) {
+      viewCounted = true;
+      countView();
+    }
   });
 }
 
@@ -99,7 +107,7 @@ async function saveHistory(position) {
   }, { merge: true });
 }
 
-// ---------- View counting: 1 per akun/anon-id per 24 jam ----------
+// ---------- View counting: 1 per akun/anon-id per jendela waktu, setelah nonton minimal N detik ----------
 async function countView() {
   try {
     const anonId = getAnonId();
@@ -110,7 +118,7 @@ async function countView() {
     const now = Date.now();
     if (snap.exists()) {
       const last = snap.data().viewedAt?.toMillis?.() || 0;
-      if (now - last < 24 * 60 * 60 * 1000) return; // sudah dihitung dalam 24 jam
+      if (now - last < VIEW_WINDOW_MS) return; // sudah dihitung dalam 15 menit terakhir
     }
     await setDoc(ref, { videoId, uid: uidOrAnon, viewedAt: serverTimestamp() });
     await updateDoc(doc(db, "videos", videoId), { viewCount: increment(1) });
