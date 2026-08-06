@@ -24,6 +24,7 @@
   th{color:var(--text-muted);font-weight:500}
   .row-actions button{margin-right:6px;font-size:.78rem}
   #thumb-preview img{width:160px;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid var(--border)}
+  .settings-subhead{font-family:var(--font-display);margin-top:8px}
 </style>
 </head>
 <body>
@@ -59,6 +60,11 @@
           <div id="thumb-upload-status" style="font-size:.78rem;color:var(--text-muted);margin-top:4px"></div>
         </div>
         <div><label>Link Embed Video</label><input id="f-embed" placeholder="URL YouTube / Vimeo / GDrive / MP4"></div>
+        <div>
+          <label>Atau Upload Video dari Galeri</label>
+          <input type="file" id="f-video-file" accept="video/*">
+          <div id="video-upload-status" style="font-size:.78rem;color:var(--text-muted);margin-top:4px"></div>
+        </div>
         <div><label>SEO Title</label><input id="f-seo-title"></div>
         <div><label>SEO Description</label><input id="f-seo-desc"></div>
         <div><label>Meta Keyword</label><input id="f-keywords" placeholder="pisahkan koma"></div>
@@ -86,6 +92,34 @@
         <div><label>Email Kontak</label><input id="s-email"></div>
         <div><label>Google Analytics ID</label><input id="s-ga"></div>
       </div>
+
+      <div class="form-grid full" style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+        <h3 class="settings-subhead">API Upload Thumbnail</h3>
+      </div>
+      <div class="form-grid">
+        <div><label>API Key Thumbnail (ImgBB / lainnya)</label><input id="s-thumb-api-key" placeholder="API key layanan thumbnail"></div>
+        <div><label>Endpoint Upload Thumbnail</label><input id="s-thumb-endpoint" placeholder="https://api.imgbb.com/1/upload"></div>
+        <div><label>Field URL di Respons</label><input id="s-thumb-field" placeholder="mis. data.url"></div>
+      </div>
+
+      <div class="form-grid full" style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+        <h3 class="settings-subhead">API Upload Video</h3>
+      </div>
+      <div class="form-grid">
+        <div><label>API Key Video</label><input id="s-video-api-key" placeholder="API key layanan hosting video"></div>
+        <div><label>Endpoint Upload Video</label><input id="s-video-endpoint" placeholder="https://api.layananvideo.com/upload"></div>
+        <div><label>Field URL di Respons</label><input id="s-video-field" placeholder="mis. url atau data.url"></div>
+        <div><label>API Key Dikirim Sebagai</label>
+          <select id="s-video-auth-type">
+            <option value="query">Query Param</option>
+            <option value="header">Header (Bearer/AccessKey)</option>
+          </select>
+        </div>
+        <div><label>Endpoint Cek Status (opsional, kosongkan jika tidak perlu)</label><input id="s-video-status-endpoint" placeholder="https://api.layananvideo.com/status"></div>
+        <div><label>Field Status di Respons</label><input id="s-video-status-field" placeholder="mis. status"></div>
+        <div><label>Nilai Status "Siap"</label><input id="s-video-ready-value" placeholder="mis. ready"></div>
+      </div>
+
       <button class="btn" id="btn-save-settings" style="margin-top:16px">Simpan Pengaturan</button>
     </section>
   </main>
