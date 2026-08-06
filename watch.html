@@ -1,93 +1,253 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title id="page-title">NOKT HUB — Tonton Video</title>
-<meta id="meta-desc" name="description" content="">
-<meta name="theme-color" content="#0A0A0B">
-<link rel="canonical" id="canonical-link" href="">
-<meta property="og:title" id="og-title" content="">
-<meta property="og:description" id="og-desc" content="">
-<meta property="og:image" id="og-image" content="">
-<meta name="twitter:card" content="summary_large_image">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css">
-<script type="application/ld+json" id="json-ld"></script>
-</head>
-<body>
+// ============================================================
+// NOKT HUB — Watch Page Logic
+// ============================================================
+import {
+  db, auth, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc,
+  deleteDoc, query, where, orderBy, limit, increment, serverTimestamp,
+  onAuthStateChanged, onSnapshot
+} from "./firebase-config.js";
+import { renderPlayer, trackResumePosition } from "./player.js";
+import { escapeHtml, renderVideoCard } from "./app.js";
 
-<header class="site-header">
-  <div class="header-row container">
-    <a href="index.html" class="brand">
-      <img src="https://i.ibb.co.com/nss27bKz/20260716-103634.png" alt="NOKT HUB logo">
-      NOKT HUB <span class="dot"></span>
-    </a>
-    <a href="index.html" class="nav-btn">Home</a>
-    <div class="search-wrap">
-      <input id="search-input" class="search-input" type="text" placeholder="Cari judul, tag, kategori...">
-      <div id="search-results" class="search-results"></div>
-    </div>
-    <button id="login-btn" class="btn">Login</button>
-    <div id="profile-btn" class="profile-btn nav-btn" style="display:none;cursor:pointer"></div>
-  </div>
-</header>
+const params = new URLSearchParams(window.location.search);
+const videoId = params.get("id");
+let currentUser = null;
+let videoData = null;
+let unsubscribeStats = null; // listener realtime view/like, dibersihkan saat pindah halaman
 
-<main class="container watch-layout">
-  <div>
-    <div id="player-container" class="player-wrap"></div>
+onAuthStateChanged(auth, (u) => currentUser = u);
 
-    <h1 id="video-title" class="video-title">Memuat...</h1>
-    <div class="video-stats">
-      <span id="stat-views">0 view</span>
-      <span id="stat-likes">0 like</span>
-      <span id="stat-date">-</span>
-    </div>
+async function loadVideo() {
+  if (!videoId) return;
+  const ref = doc(db, "videos", videoId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    document.getElementById("video-title").textContent = "Video tidak ditemukan";
+    return;
+  }
+  videoData = { id: snap.id, ...snap.data() };
+  renderVideoInfo();
+  await countView(); // logika anti-spam TIDAK diubah
+  listenVideoStats(); // baru: view/like update realtime tanpa reload
+  await loadRelated();
+  loadComments();
+}
 
-    <div class="share-row">
-      <button class="share-btn" id="btn-like">👍 Suka</button>
-      <button class="share-btn" data-share="copy">Copy Link</button>
-      <button class="share-btn" data-share="whatsapp">WhatsApp</button>
-      <button class="share-btn" data-share="telegram">Telegram</button>
-      <button class="share-btn" data-share="facebook">Facebook</button>
-      <button class="share-btn" data-share="twitter">Twitter/X</button>
-      <button class="share-btn" data-share="native">Bagikan</button>
-    </div>
+function renderVideoInfo() {
+  const v = videoData;
+  document.title = `${v.title} — NOKT HUB`;
+  document.getElementById("page-title").textContent = `${v.title} — NOKT HUB`;
+  document.getElementById("meta-desc").setAttribute("content", v.seoDescription || v.description || "");
+  document.getElementById("og-title").setAttribute("content", v.seoTitle || v.title);
+  document.getElementById("og-desc").setAttribute("content", v.description || "");
+  document.getElementById("og-image").setAttribute("content", v.thumbnail || "");
+  document.getElementById("canonical-link").setAttribute("href", `${location.origin}/watch.html?id=${v.id}`);
 
-    <p id="video-desc" style="color:var(--text-muted);margin:10px 0"></p>
-    <div id="video-category" style="margin:6px 0"></div>
-    <div id="video-tags"></div>
+  document.getElementById("json-ld").textContent = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "VideoObject",
+    "name": v.title,
+    "description": v.description,
+    "thumbnailUrl": v.thumbnail,
+    "uploadDate": v.uploadedAt?.toDate ? v.uploadedAt.toDate().toISOString() : undefined
+  });
 
-    <section style="margin-top:30px">
-      <h2 style="font-family:var(--font-display);margin-bottom:12px">Komentar</h2>
-      <div class="comment-box">
-        <textarea id="comment-input" placeholder="Tulis komentar... (harus login)"></textarea>
-        <button class="btn" id="btn-comment" style="margin-top:8px">Kirim</button>
+  document.getElementById("video-title").textContent = v.title;
+  document.getElementById("video-desc").textContent = v.description || "";
+  document.getElementById("stat-views").textContent = `${(v.viewCount||0).toLocaleString('id-ID')} view`;
+  document.getElementById("stat-likes").textContent = `${(v.likeCount||0).toLocaleString('id-ID')} like`;
+  document.getElementById("stat-date").textContent = v.uploadedAt?.toDate
+    ? v.uploadedAt.toDate().toLocaleDateString('id-ID') : "";
+
+  document.getElementById("video-category").innerHTML =
+    `<a class="cat-chip" href="category.html?c=${encodeURIComponent(v.category||'')}">${escapeHtml(v.category||'-')}</a>`;
+  document.getElementById("video-tags").innerHTML = (v.tags||[])
+    .map(t => `<a class="tag-chip" href="tag.html?t=${encodeURIComponent(t)}">#${escapeHtml(t)}</a>`).join("");
+
+  // Resume posisi terakhir (localStorage untuk guest, Firestore 'history' untuk user login)
+  const resumeKey = `nokt_resume_${v.id}`;
+  const resumeAt = currentUser ? null : parseInt(localStorage.getItem(resumeKey) || "0");
+
+  const container = document.getElementById("player-container");
+  const el = renderPlayer(container, v.embedUrl, { resumeAt });
+
+  trackResumePosition(el, (t) => {
+    localStorage.setItem(resumeKey, t);
+    if (currentUser) saveHistory(t);
+  });
+}
+
+// ---------- Realtime stats (view/like) tanpa reload ----------
+// Hanya "mendengar" perubahan dan update tampilan — sama sekali tidak
+// menambah write ke Firestore, jadi tidak menambah beban/biaya.
+function listenVideoStats() {
+  if (unsubscribeStats) unsubscribeStats(); // hindari listener dobel kalau loadVideo terpanggil lagi
+  unsubscribeStats = onSnapshot(doc(db, "videos", videoId), (snap) => {
+    if (!snap.exists()) return;
+    const d = snap.data();
+    videoData = { id: videoId, ...d };
+    document.getElementById("stat-views").textContent = `${(d.viewCount||0).toLocaleString('id-ID')} view`;
+    document.getElementById("stat-likes").textContent = `${(d.likeCount||0).toLocaleString('id-ID')} like`;
+  });
+}
+window.addEventListener("beforeunload", () => { if (unsubscribeStats) unsubscribeStats(); });
+
+async function saveHistory(position) {
+  if (!currentUser) return;
+  const ref = doc(db, "history", `${currentUser.uid}_${videoId}`);
+  await setDoc(ref, {
+    uid: currentUser.uid, videoId, lastPosition: position, watchedAt: serverTimestamp()
+  }, { merge: true });
+}
+
+// ---------- View counting: 1 per akun/anon-id per 24 jam ----------
+// (logika ini tidak diubah sama sekali dari versi sebelumnya)
+async function countView() {
+  const anonId = getAnonId();
+  const uidOrAnon = currentUser ? currentUser.uid : anonId;
+  const viewDocId = `${videoId}_${uidOrAnon}`;
+  const ref = doc(db, "views", viewDocId);
+  const snap = await getDoc(ref);
+  const now = Date.now();
+  if (snap.exists()) {
+    const last = snap.data().viewedAt?.toMillis?.() || 0;
+    if (now - last < 24 * 60 * 60 * 1000) return; // sudah dihitung dalam 24 jam
+  }
+  await setDoc(ref, { videoId, uid: uidOrAnon, viewedAt: serverTimestamp() });
+  await updateDoc(doc(db, "videos", videoId), { viewCount: increment(1) });
+}
+
+function getAnonId() {
+  let id = localStorage.getItem("nokt_anon_id");
+  if (!id) {
+    id = "anon_" + Math.random().toString(36).slice(2);
+    localStorage.setItem("nokt_anon_id", id);
+  }
+  return id;
+}
+
+// ---------- Like ----------
+document.getElementById("btn-like").addEventListener("click", async () => {
+  if (!currentUser) { window.location.href = "login.html"; return; }
+  const likeRef = doc(db, "likes", `${videoId}_${currentUser.uid}`);
+  const snap = await getDoc(likeRef);
+  if (snap.exists()) return; // sudah like
+  await setDoc(likeRef, { videoId, uid: currentUser.uid });
+  await updateDoc(doc(db, "videos", videoId), { likeCount: increment(1) });
+  // Tidak perlu update manual lagi di sini — listenVideoStats() akan
+  // otomatis nangkep perubahan ini dan update tampilan.
+});
+
+// ---------- Share ----------
+document.querySelectorAll("[data-share]").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const url = window.location.href;
+    const platform = btn.dataset.share;
+    if (platform === "copy") {
+      await navigator.clipboard.writeText(url);
+      btn.textContent = "Tersalin!";
+      setTimeout(() => btn.textContent = "Copy Link", 1500);
+    } else if (platform === "whatsapp") {
+      window.open(`https://wa.me/?text=${encodeURIComponent(url)}`, "_blank");
+    } else if (platform === "telegram") {
+      window.open(`https://t.me/share/url?url=${encodeURIComponent(url)}`, "_blank");
+    } else if (platform === "facebook") {
+      window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`, "_blank");
+    } else if (platform === "twitter") {
+      window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}`, "_blank");
+    } else if (platform === "native" && navigator.share) {
+      navigator.share({ title: videoData?.title, url });
+    }
+    await addDoc(collection(db, "shares"), {
+      videoId, uid: currentUser?.uid || null, platform, sharedAt: serverTimestamp()
+    });
+    await updateDoc(doc(db, "videos", videoId), { shareCount: increment(1) });
+  });
+});
+
+// ---------- Related videos ----------
+async function loadRelated() {
+  const wrap = document.getElementById("related-list");
+  const q = query(
+    collection(db, "videos"),
+    where("status", "==", "publish"),
+    where("category", "==", videoData.category || ""),
+    limit(6)
+  );
+  const snap = await getDocs(q);
+  const items = snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(v => v.id !== videoId);
+  wrap.innerHTML = items.map(v => `
+    <a href="watch.html?id=${v.id}" style="display:flex;gap:10px;text-decoration:none;color:inherit">
+      <img src="${v.thumbnail}" style="width:120px;aspect-ratio:16/9;object-fit:cover;border-radius:6px" loading="lazy">
+      <div>
+        <div style="font-size:.85rem;font-weight:600;line-height:1.3">${escapeHtml(v.title)}</div>
+        <div style="font-size:.72rem;color:var(--text-muted)">${(v.viewCount||0).toLocaleString('id-ID')} view</div>
       </div>
-      <div id="comment-list" style="margin-top:16px"></div>
-    </section>
-  </div>
+    </a>`).join("") || `<p style="color:var(--text-muted)">Belum ada video terkait</p>`;
+}
 
-  <aside>
-    <h2 style="font-family:var(--font-display);font-size:1.1rem;margin-bottom:12px">Video Terkait</h2>
-    <div id="related-list" style="display:flex;flex-direction:column;gap:12px"></div>
-  </aside>
-</main>
+// ---------- Comments ----------
+function loadComments() {
+  const list = document.getElementById("comment-list");
+  const q = query(
+    collection(db, "comments"),
+    where("videoId", "==", videoId),
+    orderBy("createdAt", "desc")
+  );
+  getDocs(q).then(snap => {
+    const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    list.innerHTML = comments.filter(c => !c.parentId).map(c => renderComment(c, comments)).join("")
+      || `<p style="color:var(--text-muted)">Belum ada komentar. Jadilah yang pertama!</p>`;
+  });
+}
 
-<footer class="site-footer">
-  <div class="container footer-grid">
-    <div>NOKT HUB — © 2026</div>
-    <div class="footer-links">
-      <a href="privacy.html">Privacy Policy</a>
-      <a href="dmca.html">DMCA</a>
-      <a href="disclaimer.html">Disclaimer</a>
-    </div>
-  </div>
-</footer>
+function renderComment(c, all) {
+  const replies = all.filter(r => r.parentId === c.id);
+  const isOwner = currentUser && currentUser.uid === c.uid;
+  return `
+    <div class="comment-item">
+      <img src="${c.userPhoto || 'https://via.placeholder.com/34'}" alt="">
+      <div style="flex:1">
+        <div style="font-size:.85rem;font-weight:600">${escapeHtml(c.userName || 'User')}</div>
+        <div style="font-size:.85rem;margin:4px 0">${escapeHtml(c.text)}</div>
+        <div style="display:flex;gap:10px;font-size:.72rem;color:var(--text-muted)">
+          <span>👍 ${c.likeCount||0}</span>
+          <span>👎 ${c.dislikeCount||0}</span>
+          ${isOwner ? `<span style="cursor:pointer" data-del="${c.id}">Hapus</span>` : ""}
+        </div>
+        ${replies.map(r => `
+          <div style="margin-top:8px;padding-left:14px;border-left:2px solid var(--border)">
+            <div style="font-size:.8rem;font-weight:600">${escapeHtml(r.userName)}</div>
+            <div style="font-size:.8rem">${escapeHtml(r.text)}</div>
+          </div>`).join("")}
+      </div>
+    </div>`;
+}
 
-<script type="module" src="js/firebase-config.js"></script>
-<script type="module" src="js/auth.js"></script>
-<script type="module" src="js/app.js"></script>
-<script type="module" src="js/watch.js"></script>
-</body>
-</html>
+document.getElementById("btn-comment").addEventListener("click", async () => {
+  if (!currentUser) { window.location.href = "login.html"; return; }
+  const input = document.getElementById("comment-input");
+  const text = input.value.trim();
+  if (!text) return;
+  await addDoc(collection(db, "comments"), {
+    videoId, uid: currentUser.uid,
+    userName: currentUser.displayName || "User",
+    userPhoto: currentUser.photoURL || "",
+    text, parentId: null, likeCount: 0, dislikeCount: 0,
+    createdAt: serverTimestamp()
+  });
+  input.value = "";
+  loadComments();
+});
+
+document.getElementById("comment-list").addEventListener("click", async (e) => {
+  const delId = e.target.dataset.del;
+  if (delId) {
+    await deleteDoc(doc(db, "comments", delId));
+    loadComments();
+  }
+});
+
+loadVideo();
