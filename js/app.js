@@ -35,7 +35,6 @@ function listenVideos(onUpdate) {
 }
 
 // ---------- Popular Score ----------
-// Popular Score = (View*0.6) + (Like*0.2) + (SearchTagCount*0.1) + (Share*0.1)
 function computePopularScore(v) {
   return (v.viewCount || 0) * 0.6
        + (v.likeCount || 0) * 0.2
@@ -44,22 +43,31 @@ function computePopularScore(v) {
 }
 
 // ---------- Thumbnail fallback berlapis ----------
-// 1) Manual (v.thumbnail) -> 2) Otomatis dari metadata provider (saat ini: YouTube)
-// -> 3) Thumbnail Default dari Website Settings -> 4) Placeholder bawaan.
+// 1) Manual/otomatis tersimpan (v.thumbnail, sudah diisi saat admin publish,
+//    baik manual, upload+crop, atau auto-generate dari video)
+// 2) Auto dari metadata provider (YouTube, Vimeo) — jaring pengaman untuk
+//    video lama yang disimpan sebelum fitur auto-thumbnail ada
+// 3) Thumbnail Default dari Website Settings
+// 4) Placeholder bawaan (rapi, bukan gambar pecah)
 // Kalau gambar yang dipilih gagal dimuat (link rusak), otomatis geser ke
 // lapisan berikutnya lewat onerror, jadi tidak pernah ada gambar pecah.
-function extractYoutubeAutoThumb(embedUrl) {
+function extractAutoThumb(embedUrl) {
   if (!embedUrl) return null;
-  const m = embedUrl.match(/youtu\.be\/([a-zA-Z0-9_-]+)/)
-         || embedUrl.match(/[?&]v=([a-zA-Z0-9_-]+)/)
-         || embedUrl.match(/embed\/([a-zA-Z0-9_-]+)/);
-  return m ? `https://img.youtube.com/vi/${m[1]}/hqdefault.jpg` : null;
+  const yt = embedUrl.match(/youtu\.be\/([a-zA-Z0-9_-]+)/)
+          || embedUrl.match(/[?&]v=([a-zA-Z0-9_-]+)/)
+          || embedUrl.match(/embed\/([a-zA-Z0-9_-]+)/);
+  if (yt) return `https://img.youtube.com/vi/${yt[1]}/hqdefault.jpg`;
+
+  const vimeo = embedUrl.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  if (vimeo) return `https://vumbnail.com/${vimeo[1]}.jpg`;
+
+  return null;
 }
 
 function buildThumbChain(v) {
   const chain = [];
   if (v.thumbnail) chain.push(v.thumbnail);
-  const auto = extractYoutubeAutoThumb(v.embedUrl);
+  const auto = extractAutoThumb(v.embedUrl);
   if (auto) chain.push(auto);
   if (siteSettings.defaultThumbnail) chain.push(siteSettings.defaultThumbnail);
   chain.push(PLACEHOLDER_THUMB);
@@ -155,8 +163,6 @@ function emptyState(msg){
 }
 
 // ---------- Hero slider (video terbaru) ----------
-// Ditambah: auto-rotate 6 detik, swipe mobile, tombol panah, transisi lebih
-// halus, dan tetap aman kalau cuma ada 1 video (tanpa error).
 function renderHero() {
   const wrap = document.getElementById("hero-slider");
   const dotsWrap = document.getElementById("hero-dots");
@@ -180,7 +186,6 @@ function renderHero() {
   dotsWrap.innerHTML = slides.map((_,i) =>
     `<span data-i="${i}" class="${i===0?'active':''}"></span>`).join("");
 
-  // Bersihkan tombol panah lama (kalau ada dari render sebelumnya) sebelum bikin baru
   wrap.parentElement.querySelectorAll(".hero-nav-arrow").forEach(el => el.remove());
 
   let idx = 0;
@@ -203,7 +208,6 @@ function renderHero() {
     });
   });
 
-  // Tombol panah kiri/kanan (dibuat via JS, style inline supaya tidak perlu ubah CSS)
   if (slides.length > 1) {
     const mkArrow = (dir, symbol) => {
       const btn = document.createElement("button");
@@ -229,7 +233,6 @@ function renderHero() {
     wrap.parentElement.appendChild(mkArrow("next", "›"));
   }
 
-  // Swipe mobile
   let touchStartX = 0;
   wrap.addEventListener("touchstart", (e) => { touchStartX = e.touches[0].clientX; stopAutoplay(); }, { passive: true });
   wrap.addEventListener("touchend", (e) => {
@@ -238,7 +241,6 @@ function renderHero() {
     startAutoplay();
   }, { passive: true });
 
-  // Panah keyboard (kiri/kanan), aktif saat hero dalam tampilan
   document.addEventListener("keydown", (e) => {
     const rect = wrap.getBoundingClientRect();
     const inView = rect.top < window.innerHeight && rect.bottom > 0;
@@ -283,7 +285,7 @@ function initSearch() {
           </div>
         </a>`).join("") || `<div style="padding:12px;color:var(--text-muted)">Tidak ditemukan</div>`;
       resultsBox.classList.add("active");
-    }, 250); // debounce realtime tanpa reload
+    }, 250);
   });
 
   input.addEventListener("keydown", (e) => {
