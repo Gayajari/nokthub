@@ -18,7 +18,6 @@ function slugify(str) {
 // (diisi lewat tab Pengaturan), bukan hardcode di kode.
 // ============================================================
 
-// Ambil nilai nested dari object pakai path string, mis. "data.url"
 function getByPath(obj, path) {
   if (!path) return undefined;
   return path.split(".").reduce((o, k) => (o ? o[k] : undefined), obj);
@@ -33,30 +32,25 @@ async function getSiteSettings(forceRefresh = false) {
 }
 
 /**
- * Upload file ke host manapun (foto/video) berdasarkan config dinamis.
- * config: {
- *   endpoint, apiKey, urlField, fileFieldName,
- *   authType: "query" | "header"   (default "query")
- * }
+ * Upload file/blob ke host manapun (foto/video) berdasarkan config dinamis.
+ * config: { endpoint, apiKey, urlField, fileFieldName, authType, fileName }
  */
-async function uploadToHost(file, config) {
-  const { endpoint, apiKey, urlField, fileFieldName = "file", authType = "query" } = config;
+async function uploadToHost(fileOrBlob, config) {
+  const { endpoint, apiKey, urlField, fileFieldName = "file", authType = "query", fileName } = config;
   if (!endpoint || !apiKey) {
     throw new Error("Endpoint atau API key belum diatur di tab Pengaturan.");
   }
 
   const formData = new FormData();
-  formData.append(fileFieldName, file);
+  formData.append(fileFieldName, fileOrBlob, fileName || fileOrBlob.name || "upload");
 
   let url = endpoint;
   const headers = {};
 
   if (authType === "header") {
-    // Umum dipakai host video: Authorization: Bearer xxx / AccessKey: xxx
     headers["Authorization"] = `Bearer ${apiKey}`;
-    headers["AccessKey"] = apiKey; // sebagian provider pakai header custom ini
+    headers["AccessKey"] = apiKey;
   } else {
-    // Default: API key dikirim sebagai query param (pola umum host foto)
     const sep = endpoint.includes("?") ? "&" : "?";
     url = `${endpoint}${sep}key=${encodeURIComponent(apiKey)}`;
   }
@@ -76,14 +70,11 @@ async function uploadToHost(file, config) {
 }
 
 /**
- * Polling status upload video (opsional — hanya dipakai kalau provider
- * butuh waktu proses/encoding sebelum video siap ditonton).
- * statusConfig: { statusEndpoint, apiKey, authType, urlField, statusField }
- * Berhenti otomatis setelah ~2 menit (24x cek, jeda 5 detik) supaya tidak nge-hang.
+ * Polling status upload video (opsional).
  */
 async function pollVideoStatus(idOrUrl, statusConfig) {
   const { statusEndpoint, apiKey, authType = "query", urlField, statusField, readyValue = "ready" } = statusConfig;
-  if (!statusEndpoint) return idOrUrl; // tidak ada endpoint status → anggap sudah final
+  if (!statusEndpoint) return idOrUrl;
 
   const maxAttempts = 24;
   const delayMs = 5000;
@@ -110,35 +101,179 @@ async function pollVideoStatus(idOrUrl, statusConfig) {
   throw new Error("Video masih diproses, coba cek lagi beberapa saat lagi.");
 }
 
-// ---------- Upload Thumbnail ----------
+// ============================================================
+// CROP/ZOOM THUMBNAIL (pakai Cropper.js, dimuat via CDN di dashboard.html)
+// ============================================================
+let cropperInstance = null;
+let pendingCropResolve = null;
+
+function openCropModal(file) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("crop-modal");
+    const img = document.getElementById("crop-image");
+    if (!modal || !img || typeof Cropper === "undefined") {
+      // Cropper.js belum termuat (mis. offline) — langsung pakai file asli tanpa crop
+      resolve(file);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      img.src = reader.result;
+      modal.style.display = "flex";
+      if (cropperInstance) cropperInstance.destroy();
+      cropperInstance = new Cropper(img, { aspectRatio: 16 / 9, viewMode: 1, autoCropArea: 1, background: false });
+      pendingCropResolve = resolve;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function initCropModalButtons() {
+  const confirmBtn = document.getElementById("crop-confirm");
+  const cancelBtn = document.getElementById("crop-cancel");
+  const modal = document.getElementById("crop-modal");
+  if (!confirmBtn || !cancelBtn) return;
+
+  confirmBtn.addEventListener("click", () => {
+    if (!cropperInstance) return;
+    cropperInstance.getCroppedCanvas({ width: 640, height: 360 }).toBlob((blob) => {
+      modal.style.display = "none";
+      cropperInstance.destroy();
+      cropperInstance = null;
+      pendingCropResolve?.(blob);
+      pendingCropResolve = null;
+    }, "image/jpeg", 0.92);
+  });
+
+  cancelBtn.addEventListener("click", () => {
+    modal.style.display = "none";
+    if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
+    pendingCropResolve?.(null); // batal
+    pendingCropResolve = null;
+  });
+}
+
+// ---------- Upload Thumbnail (manual link ATAU upload file + crop) ----------
 function initThumbUpload() {
   const fileInput = document.getElementById("f-thumb-file");
-  const hiddenInput = document.getElementById("f-thumb");
+  const urlInput = document.getElementById("f-thumb"); // sekarang input teks biasa, bisa diisi manual
   const preview = document.getElementById("thumb-preview");
   const status = document.getElementById("thumb-upload-status");
-  if (!fileInput) return;
+  if (!urlInput) return;
 
+  // Preview otomatis kalau admin ketik/tempel link manual
+  urlInput.addEventListener("change", () => {
+    preview.innerHTML = urlInput.value.trim()
+      ? `<img src="${urlInput.value.trim()}" alt="preview thumbnail">` : "";
+  });
+
+  if (!fileInput) return;
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files[0];
     if (!file) return;
+
+    const cropped = await openCropModal(file); // buka modal crop/zoom dulu
+    fileInput.value = ""; // reset supaya file yang sama bisa dipilih ulang nanti
+    if (!cropped) return; // user membatalkan crop
+
     status.textContent = "Mengupload gambar...";
     preview.innerHTML = "";
     try {
       const s = await getSiteSettings(true);
-      const url = await uploadToHost(file, {
+      const url = await uploadToHost(cropped, {
         endpoint: s.thumbEndpoint,
         apiKey: s.thumbApiKey,
         urlField: s.thumbField,
         fileFieldName: "image",
-        authType: "query" // host foto pada umumnya pakai query param
+        authType: "query",
+        fileName: "thumbnail.jpg"
       });
-      hiddenInput.value = url;
+      urlInput.value = url; // isi otomatis field manual, tetap bisa diedit/diganti tangan
       preview.innerHTML = `<img src="${url}" alt="preview thumbnail">`;
       status.textContent = "Berhasil diupload.";
     } catch (err) {
       status.textContent = "Gagal upload: " + err.message;
     }
   });
+}
+
+// ============================================================
+// AUTO-THUMBNAIL — dipanggil saat Simpan Video kalau field
+// thumbnail dikosongkan (sengaja atau lupa). Urutan percobaan:
+// 1) YouTube (thumbnail resmi via img.youtube.com)
+// 2) Vimeo (thumbnail resmi via vumbnail.com)
+// 3) File video langsung (.mp4/.webm/dst) -> ambil 1 frame via canvas,
+//    lalu upload otomatis ke host thumbnail yang sudah diatur.
+//    Catatan: langkah ini bisa gagal kalau server video tidak
+//    mengizinkan akses cross-origin (CORS) — di luar kendali kode ini.
+// Kalau semua gagal, kembalikan null; app.js akan tetap menampilkan
+// placeholder rapi sebagai jaring pengaman terakhir (bukan gambar pecah).
+// ============================================================
+function extractAutoThumbFromEmbed(embedUrl) {
+  if (!embedUrl) return null;
+  const yt = embedUrl.match(/youtu\.be\/([a-zA-Z0-9_-]+)/)
+          || embedUrl.match(/[?&]v=([a-zA-Z0-9_-]+)/)
+          || embedUrl.match(/embed\/([a-zA-Z0-9_-]+)/);
+  if (yt) return `https://img.youtube.com/vi/${yt[1]}/hqdefault.jpg`;
+
+  const vimeo = embedUrl.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  if (vimeo) return `https://vumbnail.com/${vimeo[1]}.jpg`;
+
+  return null;
+}
+
+function captureFrameFromVideoUrl(url) {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.muted = true;
+    video.preload = "auto";
+    video.src = url;
+
+    const cleanupResolve = (val) => { resolve(val); };
+
+    video.addEventListener("loadeddata", () => {
+      try { video.currentTime = Math.min(1, (video.duration || 2) / 2); }
+      catch (e) { cleanupResolve(null); }
+    });
+    video.addEventListener("seeked", () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 360;
+        canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => cleanupResolve(blob), "image/jpeg", 0.85);
+      } catch (e) {
+        cleanupResolve(null); // biasanya kena batasan CORS dari server video
+      }
+    });
+    video.addEventListener("error", () => cleanupResolve(null));
+    setTimeout(() => cleanupResolve(null), 8000); // timeout pengaman
+  });
+}
+
+async function autoGenerateThumbnail(embedUrl) {
+  const staticThumb = extractAutoThumbFromEmbed(embedUrl);
+  if (staticThumb) return staticThumb;
+
+  const isDirectVideoFile = /\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(embedUrl);
+  if (isDirectVideoFile) {
+    const blob = await captureFrameFromVideoUrl(embedUrl);
+    if (blob) {
+      try {
+        const s = await getSiteSettings(true);
+        return await uploadToHost(blob, {
+          endpoint: s.thumbEndpoint,
+          apiKey: s.thumbApiKey,
+          urlField: s.thumbField,
+          fileFieldName: "image",
+          authType: "query",
+          fileName: "auto-thumb.jpg"
+        });
+      } catch (e) { return null; }
+    }
+  }
+  return null; // tidak bisa diambil otomatis — dibiarkan kosong, app.js yang tangani fallback
 }
 
 // ---------- Upload Video dari Galeri ----------
@@ -159,7 +294,8 @@ function initVideoUpload() {
         apiKey: s.videoApiKey,
         urlField: s.videoField,
         fileFieldName: "file",
-        authType: s.videoAuthType || "query"
+        authType: s.videoAuthType || "query",
+        fileName: file.name
       });
 
       if (s.videoStatusEndpoint) {
@@ -185,6 +321,7 @@ function initVideoUpload() {
 document.addEventListener("DOMContentLoaded", () => {
   initThumbUpload();
   initVideoUpload();
+  initCropModalButtons();
 });
 
 // ============================================================
@@ -218,7 +355,7 @@ function initTabs() {
 }
 
 // ============================================================
-// PENGATURAN (Data Utama) — termasuk API key thumbnail & video
+// PENGATURAN (Data Utama)
 // ============================================================
 async function loadSettings() {
   const s = await getSiteSettings(true);
@@ -267,7 +404,7 @@ document.addEventListener("click", async (e) => {
     videoStatusField: val("s-video-status-field"),
     videoReadyValue: val("s-video-ready-value")
   }, { merge: true });
-  settingsCache = null; // reset cache biar upload berikutnya pakai data terbaru
+  settingsCache = null;
   alert("Pengaturan tersimpan.");
 });
 
@@ -301,7 +438,7 @@ async function upsertTags(tags) {
 }
 
 // ============================================================
-// FORM VIDEO (tidak berubah)
+// FORM VIDEO
 // ============================================================
 let editingVideoId = null;
 
@@ -349,7 +486,7 @@ document.addEventListener("click", async (e) => {
   const description = document.getElementById("f-desc").value.trim();
   const tags = document.getElementById("f-tags").value.split(",").map(t => t.trim()).filter(Boolean);
   const status = document.getElementById("f-status").value;
-  const thumbnail = document.getElementById("f-thumb").value.trim();
+  let thumbnail = document.getElementById("f-thumb").value.trim();
   const embedUrl = document.getElementById("f-embed").value.trim();
   const seoTitle = document.getElementById("f-seo-title").value.trim();
   const seoDescription = document.getElementById("f-seo-desc").value.trim();
@@ -358,6 +495,14 @@ document.addEventListener("click", async (e) => {
   const msg = document.getElementById("upload-msg");
 
   if (!title || !embedUrl) { msg.textContent = "Judul dan Link Embed wajib diisi."; return; }
+
+  // Thumbnail kosong (sengaja/lupa) -> coba buat otomatis dari video sebelum simpan
+  if (!thumbnail) {
+    msg.textContent = "Membuat thumbnail otomatis dari video...";
+    const auto = await autoGenerateThumbnail(embedUrl);
+    if (auto) thumbnail = auto;
+    msg.textContent = "";
+  }
 
   try {
     if (editingVideoId) {
