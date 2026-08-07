@@ -6,6 +6,9 @@
 <title>Admin — NOKT HUB</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../css/style.css">
+<!-- Cropper.js: dipakai untuk fitur crop/zoom thumbnail sebelum upload -->
+<link href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.js"></script>
 <style>
   .admin-layout{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
   .sidebar{background:var(--surface);border-right:1px solid var(--border);padding:20px}
@@ -25,6 +28,11 @@
   .row-actions button{margin-right:6px;font-size:.78rem}
   #thumb-preview img{width:160px;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid var(--border)}
   .settings-subhead{font-family:var(--font-display);margin-top:8px}
+  #crop-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999;align-items:center;justify-content:center}
+  #crop-modal .crop-box{background:var(--surface);padding:16px;border-radius:10px;max-width:92vw}
+  #crop-modal .crop-frame{max-width:480px;max-height:55vh;overflow:hidden}
+  #crop-image{display:block;max-width:100%}
+  #crop-modal .crop-actions{margin-top:12px;display:flex;gap:8px;justify-content:flex-end}
 </style>
 </head>
 <body>
@@ -53,11 +61,15 @@
           <select id="f-status"><option value="draft">Draft</option><option value="publish">Publish</option></select>
         </div>
         <div>
-          <label>Thumbnail</label>
+          <label>Thumbnail — link manual (opsional)</label>
+          <input id="f-thumb" placeholder="https://... (kosongkan jika mau upload file di bawah / otomatis dari video)">
+          <label style="margin-top:8px">Atau upload dari galeri (bisa di-crop/zoom)</label>
           <input type="file" id="f-thumb-file" accept="image/*">
-          <input type="hidden" id="f-thumb" value="">
           <div id="thumb-preview" style="margin-top:8px"></div>
           <div id="thumb-upload-status" style="font-size:.78rem;color:var(--text-muted);margin-top:4px"></div>
+          <div style="font-size:.72rem;color:var(--text-muted);margin-top:4px">
+            Kalau dikosongkan total, sistem akan coba buat thumbnail otomatis dari videonya saat disimpan.
+          </div>
         </div>
         <div><label>Link Embed Video</label><input id="f-embed" placeholder="URL YouTube / Vimeo / GDrive / MP4"></div>
         <div>
@@ -115,7 +127,7 @@
             <option value="header">Header (Bearer/AccessKey)</option>
           </select>
         </div>
-        <div><label>Endpoint Cek Status (opsional, kosongkan jika tidak perlu)</label><input id="s-video-status-endpoint" placeholder="https://api.layananvideo.com/status"></div>
+        <div><label>Endpoint Cek Status (opsional)</label><input id="s-video-status-endpoint" placeholder="https://api.layananvideo.com/status"></div>
         <div><label>Field Status di Respons</label><input id="s-video-status-field" placeholder="mis. status"></div>
         <div><label>Nilai Status "Siap"</label><input id="s-video-ready-value" placeholder="mis. ready"></div>
       </div>
@@ -123,6 +135,17 @@
       <button class="btn" id="btn-save-settings" style="margin-top:16px">Simpan Pengaturan</button>
     </section>
   </main>
+</div>
+
+<!-- Modal Crop/Zoom Thumbnail -->
+<div id="crop-modal">
+  <div class="crop-box">
+    <div class="crop-frame"><img id="crop-image" alt="crop preview"></div>
+    <div class="crop-actions">
+      <button class="btn" id="crop-cancel" type="button">Batal</button>
+      <button class="btn" id="crop-confirm" type="button">Gunakan Foto Ini</button>
+    </div>
+  </div>
 </div>
 
 <script type="module" src="../js/firebase-config.js"></script>
