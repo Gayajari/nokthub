@@ -17,6 +17,10 @@ async function loadSiteSettings() {
   try {
     const snap = await getDoc(doc(db, "settings", "site"));
     siteSettings = snap.exists() ? snap.data() : {};
+    // Simpan ke localStorage supaya kunjungan berikutnya bisa langsung
+    // menerapkan warna tema SEBELUM halaman digambar (lihat script anti-flash
+    // di <head> setiap file HTML) — menghindari efek "kedip" warna default.
+    try { localStorage.setItem("nokt_settings_cache", JSON.stringify(siteSettings)); } catch (e) {}
   } catch (e) { siteSettings = {}; }
 }
 
