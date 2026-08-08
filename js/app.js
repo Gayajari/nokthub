@@ -81,6 +81,31 @@ function applySiteSettings() {
     el.style.visibility = "visible";
   });
 
+  // ---- Email kontak & email DMCA ----
+  // Dibungkus class "site-contact-email" (contact.html) dan "site-dmca-email"
+  // (dmca.html) di HTML. Diisi dari field contactEmail / dmcaEmail di
+  // dashboard, jadi cukup ganti sekali di panel tanpa perlu edit HTML.
+  // Sama seperti nama situs: elemen ini sempat disembunyikan lewat script
+  // anti-flash di <head>, lalu dimunculkan lagi di sini setelah teks & href
+  // mailto-nya siap — supaya tidak sempat kelihatan email placeholder lama.
+  const contactEmail = s.contactEmail;
+  document.querySelectorAll(".site-contact-email").forEach(el => {
+    if (contactEmail) {
+      el.textContent = contactEmail;
+      el.href = "mailto:" + contactEmail;
+    }
+    el.style.visibility = "visible";
+  });
+
+  const dmcaEmail = s.dmcaEmail || s.contactEmail; // fallback ke contactEmail kalau dmcaEmail belum diisi
+  document.querySelectorAll(".site-dmca-email").forEach(el => {
+    if (dmcaEmail) {
+      el.textContent = dmcaEmail;
+      el.href = "mailto:" + dmcaEmail;
+    }
+    el.style.visibility = "visible";
+  });
+
   // ---- Logo gambar + alt text ----
   const logoImg = document.getElementById("site-logo-img");
   if (logoImg) {
