@@ -200,3 +200,21 @@ select.category-select{
 /* Accessibility */
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---------- Responsive typography fine-tune ---------- */
+/* HP kecil (iPhone SE, Android ~360-480px): rapatkan header, kecilkan search */
+@media(max-width:480px){
+  .header-row{gap:10px;padding:10px 14px}
+  .brand{font-size:1.1rem}
+  .search-input{font-size:.85rem;padding:8px 12px}
+  .nav-btn{padding:7px 10px;font-size:.85rem}
+  .hero-info{padding:24px 16px}
+  .hero-info .eyebrow{font-size:.68rem}
+}
+
+/* Tablet / HP besar (481-768px) */
+@media(max-width:768px){
+  .section-head{align-items:flex-start;flex-direction:column;gap:4px}
+  .section-head .nav-btn{align-self:flex-end;margin-top:-28px}
+  .card-title{font-size:.85rem}
+}
