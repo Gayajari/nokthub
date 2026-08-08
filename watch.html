@@ -19,7 +19,7 @@
         document.documentElement.style.setProperty('--accent', c.themeColor);
       }
       if (c && c.siteName) {
-        document.write('<style>.site-brand-text{visibility:hidden}</style>');
+        document.write('<style>.site-brand-text,.site-name-inline{visibility:hidden}</style>');
       }
     } catch(e) {}
   })();
