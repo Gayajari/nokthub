@@ -14,6 +14,10 @@
       if (c && c.siteName) {
         document.write("<style>.site-brand-text,.site-name-inline{visibility:hidden}</style>");
       }
+      var authCache = JSON.parse(localStorage.getItem("nokt_auth_cache") || "null");
+      if (authCache) {
+        document.write("<style>#login-btn,#profile-btn{visibility:hidden}</style>");
+      }
     } catch(e) {}
   })();
 </script>
@@ -28,7 +32,6 @@
       <span class="site-brand-text">NOKT HUB</span> <span class="dot"></span>
     </a>
     <a href="index.html" class="nav-btn">Home</a>
-    <a href="latest.html" class="nav-btn">⟵ Terbaru</a>
     <div class="search-wrap">
       <input id="search-input" class="search-input" type="text" placeholder="Cari judul, tag, kategori...">
       <div id="search-results" class="search-results"></div>
@@ -45,19 +48,7 @@
 </main>
 
 <footer class="site-footer">
-  <div class="container footer-grid">
-    <div>
-      <a href="index.html" class="brand site-brand-text" style="margin-bottom:8px;display:inline-block;text-decoration:none">NOKT HUB</a>
-      <p>© 2026 <span class="site-name-inline">NOKT HUB</span>. Semua konten milik pemilik hak cipta masing-masing.</p>
-    </div>
-    <div class="footer-links">
-      <a href="contact.html">Kontak</a>
-      <a href="privacy-policy.html">Privacy Policy</a>
-      <a href="terms.html">Terms</a>
-      <a href="dmca.html">DMCA</a>
-      <a href="disclaimer.html">Disclaimer</a>
-    </div>
-  </div>
+  <div class="container"><span class="site-name-inline">NOKT HUB</span> — © 2026</div>
 </footer>
 
 <script type="module" src="js/firebase-config.js"></script>

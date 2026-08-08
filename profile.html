@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profil — NOKT HUB</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+  (function(){
+    try {
+      var c = JSON.parse(localStorage.getItem("nokt_settings_cache") || "null");
+      if (c && c.themeColor) {
+        document.documentElement.style.setProperty("--accent", c.themeColor);
+      }
+      if (c && c.siteName) {
+        document.write("<style>.site-brand-text,.site-name-inline{visibility:hidden}</style>");
+      }
+      var authCache = JSON.parse(localStorage.getItem("nokt_auth_cache") || "null");
+      if (authCache) {
+        document.write("<style>#login-btn,#profile-btn{visibility:hidden}</style>");
+      }
+    } catch(e) {}
+  })();
+</script>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .profile-page{max-width:560px;margin:0 auto;padding:40px 20px}
+
+  /* Ditutup default (display:none) sampai JS memutuskan mana yang tampil
+     (tamu / sudah login) -> menghindari kedua section sempat kelihatan
+     bertumpuk sesaat sebelum JS jalan. */
+  #profile-guest, #profile-logged{display:none}
+
+  .profile-guest-box{
+    text-align:center;background:var(--surface);border:1px solid var(--border);
+    border-radius:14px;padding:40px 24px;
+  }
+  .profile-guest-box h1{font-family:var(--font-display);margin-bottom:10px}
+  .profile-guest-box p{color:var(--text-muted);margin-bottom:22px}
+
+  .profile-card{
+    background:var(--surface);border:1px solid var(--border);border-radius:14px;
+    padding:28px 24px;text-align:center;
+  }
+  .profile-avatar-wrap{margin-bottom:16px}
+  .profile-avatar-wrap img{
+    width:96px;height:96px;border-radius:50%;object-fit:cover;
+    border:2px solid var(--accent);
+  }
+  .profile-field{text-align:left;margin-top:18px}
+  .profile-field label{
+    display:block;font-size:.78rem;color:var(--text-muted);margin-bottom:6px;
+  }
+  .profile-field input{
+    width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);
+    background:var(--bg);color:var(--text);font-size:.9rem;
+  }
+  .profile-field input[readonly]{color:var(--text-muted);cursor:not-allowed}
+  .profile-badge{
+    display:inline-block;margin-top:6px;font-size:.78rem;color:var(--text-muted);
+  }
+  .profile-actions{
+    margin-top:22px;display:flex;flex-direction:column;gap:10px;
+  }
+  #profile-msg{font-size:.82rem;color:var(--text-muted);min-height:1.2em;margin-top:10px}
+  .profile-joined{font-size:.78rem;color:var(--text-muted);margin-top:16px}
+  .btn-outline{
+    background:transparent;border:1px solid var(--border);color:var(--text);
+    padding:10px;border-radius:8px;cursor:pointer;font-size:.85rem;
+  }
+</style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-row container">
+      <a href="index.html" class="brand">
+        <img id="site-logo-img" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" alt="NOKT HUB logo" style="width:32px;height:32px;background:var(--surface);border-radius:6px">
+        <span class="site-brand-text">NOKT HUB</span> <span class="dot"></span>
+      </a>
+      <a href="index.html" class="nav-btn">Home</a>
+
+      <div class="search-wrap">
+        <input id="search-input" class="search-input" type="text" placeholder="Cari judul, tag, kategori...">
+        <div id="search-results" class="search-results"></div>
+      </div>
+
+      <select id="category-select" class="category-select">
+        <option value="">Semua Kategori</option>
+      </select>
+
+      <button id="login-btn" class="btn">Login</button>
+      <div id="profile-btn" class="profile-btn nav-btn" style="display:none;cursor:pointer"></div>
+    </div>
+  </header>
+
+  <main class="profile-page">
+
+    <!-- ---------- Tampilan untuk pengunjung yang BELUM login ---------- -->
+    <section id="profile-guest">
+      <div class="profile-guest-box">
+        <h1>Kamu belum login</h1>
+        <p>Login dulu untuk melihat dan mengatur profil akunmu.</p>
+        <a href="login.html" class="btn">Login Sekarang</a>
+      </div>
+    </section>
+
+    <!-- ---------- Tampilan untuk pengunjung yang SUDAH login ---------- -->
+    <section id="profile-logged">
+      <div class="profile-card">
+        <div class="profile-avatar-wrap">
+          <img id="profile-avatar" src="" alt="Foto profil">
+        </div>
+
+        <div class="profile-field">
+          <label>Nama Tampilan</label>
+          <input id="profile-name-input" type="text" placeholder="Nama kamu">
+        </div>
+
+        <div class="profile-field">
+          <label>Email</label>
+          <input id="profile-email" type="text" readonly>
+        </div>
+
+        <div id="profile-verified" class="profile-badge"></div>
+        <div id="profile-joined" class="profile-joined"></div>
+
+        <div class="profile-actions">
+          <button id="profile-save-btn" class="btn">Simpan Perubahan</button>
+          <button id="profile-logout-btn" class="btn-outline">Logout</button>
+        </div>
+        <div id="profile-msg"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <a href="index.html" class="brand site-brand-text" style="margin-bottom:8px;display:inline-block;text-decoration:none">NOKT HUB</a>
+        <p>© 2026 <span class="site-name-inline">NOKT HUB</span>. Semua konten milik pemilik hak cipta masing-masing.</p>
+      </div>
+      <div class="footer-links">
+        <a href="contact.html">Kontak</a>
+        <a href="privacy-policy.html">Privacy Policy</a>
+        <a href="terms.html">Terms</a>
+        <a href="dmca.html">DMCA</a>
+        <a href="disclaimer.html">Disclaimer</a>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="js/firebase-config.js"></script>
+  <script type="module" src="js/auth.js"></script>
+  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/categories.js"></script>
+  <script type="module" src="js/profile.js"></script>
+</body>
+</html>

@@ -18,6 +18,10 @@
       if (c && c.dmcaEmail) {
         document.write("<style>.site-dmca-email{visibility:hidden}</style>");
       }
+      var authCache = JSON.parse(localStorage.getItem("nokt_auth_cache") || "null");
+      if (authCache) {
+        document.write("<style>#login-btn,#profile-btn{visibility:hidden}</style>");
+      }
     } catch(e) {}
   })();
 </script>
