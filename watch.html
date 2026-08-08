@@ -18,6 +18,9 @@
       if (c && c.themeColor) {
         document.documentElement.style.setProperty('--accent', c.themeColor);
       }
+      if (c && c.siteName) {
+        document.write('<style>.site-brand-text{visibility:hidden}</style>');
+      }
     } catch(e) {}
   })();
 </script>
