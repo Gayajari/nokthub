@@ -27,24 +27,67 @@ async function loadSiteSettings() {
 }
 
 // ---------- Terapkan Pengaturan Website ke tampilan ----------
-// Sebelumnya field-field ini (Nama Website, Logo, Favicon, Warna Tema, GA ID)
-// cuma tersimpan di database tapi tidak pernah dibaca untuk mengubah tampilan.
-// Fungsi ini yang menyambungkannya. Kalau elemen dengan id/class terkait
-// belum ada di suatu halaman, bagian itu dilewati saja (aman, tidak error).
+// Field-field ini (Nama Website, Logo, Favicon, Warna Tema, GA ID) disambungkan
+// ke semua tempat nama web muncul di halaman. Kalau elemen terkait belum ada
+// di suatu halaman, bagian itu dilewati saja (aman, tidak error).
 function applySiteSettings() {
   const s = siteSettings;
+  const name = s.siteName; // kalau kosong, HTML tetap tampil default "NOKT HUB" (fallback aman)
 
-  const titleEl = document.getElementById("site-title");
-  if (s.siteName && titleEl) {
-    document.title = document.title.replace(/NOKT HUB/i, s.siteName);
+  // ---- Judul tab browser ----
+  // Sebelumnya hanya jalan kalau ada elemen <title id="site-title">.
+  // Sekarang langsung ganti teks document.title, jadi otomatis berlaku
+  // di SEMUA halaman walau id-nya beda-beda (mis. watch.html pakai
+  // id="page-title") atau bahkan tidak punya id sama sekali (contact.html dll).
+  if (name) {
+    document.title = document.title.replace(/NOKT HUB/gi, name);
   }
+
+  // ---- Nama brand utuh (header logo-text & footer brand link) ----
   document.querySelectorAll(".site-brand-text").forEach(el => {
-    if (s.siteName) el.textContent = s.siteName;
+    if (name) el.textContent = name;
     el.style.visibility = "visible"; // reveal lagi meski cache sempat sembunyikan teks
   });
 
+  // ---- Nama di tengah kalimat (mis. teks copyright footer) ----
+  // Dibungkus <span class="site-name-inline">NOKT HUB</span> di HTML supaya
+  // saat diganti, hanya kata namanya yang berubah, kalimat sekitarnya utuh.
+  document.querySelectorAll(".site-name-inline").forEach(el => {
+    if (name) el.textContent = name;
+  });
+
+  // ---- Logo gambar + alt text ----
   const logoImg = document.getElementById("site-logo-img");
-  if (logoImg) logoImg.src = s.logoUrl || DEFAULT_LOGO_URL;
+  if (logoImg) {
+    logoImg.src = s.logoUrl || DEFAULT_LOGO_URL;
+    if (name) logoImg.alt = `${name} logo`;
+  }
+
+  // ---- SEO: meta description, Open Graph, JSON-LD milik SITE (bukan per-video) ----
+  // Pakai id khusus "site-*" / "og-site-*" supaya tidak bentrok dengan
+  // meta per-video di watch.html yang dikelola watch.js (id="meta-desc",
+  // "og-title", dst). Kalau elemen id ini tidak ada di suatu halaman
+  // (mis. watch.html, contact.html), bagian ini otomatis dilewati.
+  const metaDesc = document.getElementById("site-meta-desc");
+  if (name && metaDesc) {
+    metaDesc.setAttribute("content", metaDesc.getAttribute("content").replace(/NOKT HUB/gi, name));
+  }
+  const ogTitle = document.getElementById("og-site-title");
+  if (name && ogTitle) {
+    ogTitle.setAttribute("content", ogTitle.getAttribute("content").replace(/NOKT HUB/gi, name));
+  }
+  const ogDesc = document.getElementById("og-site-desc");
+  if (name && ogDesc) {
+    ogDesc.setAttribute("content", ogDesc.getAttribute("content").replace(/NOKT HUB/gi, name));
+  }
+  const jsonLd = document.getElementById("site-json-ld");
+  if (name && jsonLd) {
+    try {
+      const data = JSON.parse(jsonLd.textContent);
+      data.name = name;
+      jsonLd.textContent = JSON.stringify(data);
+    } catch (e) { /* biarkan JSON-LD default kalau parsing gagal */ }
+  }
 
   const faviconLink = document.getElementById("site-favicon");
   if (s.favicon && faviconLink) faviconLink.href = s.favicon;
