@@ -13,6 +13,36 @@ function slugify(str) {
 }
 
 // ============================================================
+// NORMALISASI LINK THUMBNAIL MANUAL
+// Banyak link "gambar" yang ditempel orang sebenarnya link halaman
+// viewer (Google Drive, Dropbox, dll), bukan link file gambar langsung.
+// Fungsi ini kenali pola-pola umum dan ubah otomatis jadi link
+// langsung yang bisa dipakai di <img src>. Kalau polanya tidak
+// dikenali (termasuk link ImgBB/CDN yang memang sudah direct),
+// link dipakai apa adanya tanpa diubah.
+// ============================================================
+function normalizeThumbLink(url) {
+  if (!url) return url;
+  const trimmed = url.trim();
+
+  // Google Drive: /file/d/ID/view , open?id=ID , uc?id=ID -> uc?export=view&id=ID
+  const gdrive = trimmed.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/)
+              || trimmed.match(/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/)
+              || trimmed.match(/drive\.google\.com\/uc\?id=([a-zA-Z0-9_-]+)/);
+  if (gdrive) return `https://drive.google.com/uc?export=view&id=${gdrive[1]}`;
+
+  // Dropbox: ...?dl=0 -> ...?raw=1 (biar langsung tampil, bukan halaman preview)
+  if (trimmed.includes("dropbox.com")) {
+    if (trimmed.includes("dl=0")) return trimmed.replace("dl=0", "raw=1");
+    if (!trimmed.includes("raw=1") && !trimmed.includes("dl=1")) {
+      return trimmed + (trimmed.includes("?") ? "&raw=1" : "?raw=1");
+    }
+  }
+
+  return trimmed; // sudah direct (ImgBB, CDN, dst) atau polanya belum dikenali
+}
+
+// ============================================================
 // UPLOAD GENERIK
 // ============================================================
 function getByPath(obj, path) {
@@ -143,9 +173,11 @@ function initThumbUpload() {
   const status = document.getElementById("thumb-upload-status");
   if (!urlInput) return;
 
+  // Saat admin ketik/tempel link manual -> normalisasi dulu, baru preview
   urlInput.addEventListener("change", () => {
-    preview.innerHTML = urlInput.value.trim()
-      ? `<img src="${urlInput.value.trim()}" alt="preview thumbnail">` : "";
+    const normalized = normalizeThumbLink(urlInput.value.trim());
+    urlInput.value = normalized;
+    preview.innerHTML = normalized ? `<img src="${normalized}" alt="preview thumbnail">` : "";
   });
 
   if (!fileInput) return;
@@ -164,7 +196,7 @@ function initThumbUpload() {
         endpoint: s.thumbEndpoint, apiKey: s.thumbApiKey, urlField: s.thumbField,
         fileFieldName: "image", authType: "query", fileName: "thumbnail.jpg"
       });
-      urlInput.value = url;
+      urlInput.value = url; // hasil upload sudah pasti direct link, tidak perlu dinormalisasi
       preview.innerHTML = `<img src="${url}" alt="preview thumbnail">`;
       status.textContent = "Berhasil diupload.";
     } catch (err) {
@@ -276,7 +308,6 @@ async function autoGenerateThumbnail(embedUrl) {
 }
 
 // ---------- Upload Video dari Galeri ----------
-// Host yang dipakai = host dengan radio "aktif untuk upload" di Daftar Host Video.
 function initVideoUpload() {
   const fileInput = document.getElementById("f-video-file");
   const embedInput = document.getElementById("f-embed");
@@ -368,7 +399,7 @@ function initTabs() {
 }
 
 // ============================================================
-// PENGATURAN + Daftar Host Video terpadu (thumbnail & upload jadi satu)
+// PENGATURAN + Daftar Host Video terpadu
 // ============================================================
 let hostProfilesState = [];
 let activeUploadHostName = "";
@@ -460,7 +491,8 @@ async function loadSettings() {
   const map = {
     "s-name": s.siteName, "s-logo": s.logoUrl, "s-favicon": s.favicon,
     "s-theme": s.themeColor, "s-email": s.contactEmail, "s-ga": s.gaId,
-    "s-thumb-api-key": s.thumbApiKey, "s-thumb-endpoint": s.thumbEndpoint, "s-thumb-field": s.thumbField
+    "s-thumb-api-key": s.thumbApiKey, "s-thumb-endpoint": s.thumbEndpoint, "s-thumb-field": s.thumbField,
+    "s-default-thumb": s.defaultThumbnail
   };
   Object.entries(map).forEach(([id, val]) => {
     const el = document.getElementById(id);
@@ -479,6 +511,7 @@ document.addEventListener("click", async (e) => {
     siteName: val("s-name"), logoUrl: val("s-logo"), favicon: val("s-favicon"),
     themeColor: val("s-theme"), contactEmail: val("s-email"), gaId: val("s-ga"),
     thumbApiKey: val("s-thumb-api-key"), thumbEndpoint: val("s-thumb-endpoint"), thumbField: val("s-thumb-field"),
+    defaultThumbnail: val("s-default-thumb"),
     videoHostProfiles: collectHostProfilesFromUI(),
     activeUploadHostName: getActiveUploadHostNameFromUI()
   }, { merge: true });
@@ -564,7 +597,7 @@ document.addEventListener("click", async (e) => {
   const description = document.getElementById("f-desc").value.trim();
   const tags = document.getElementById("f-tags").value.split(",").map(t => t.trim()).filter(Boolean);
   const status = document.getElementById("f-status").value;
-  let thumbnail = document.getElementById("f-thumb").value.trim();
+  let thumbnail = normalizeThumbLink(document.getElementById("f-thumb").value.trim());
   const embedUrl = document.getElementById("f-embed").value.trim();
   const seoTitle = document.getElementById("f-seo-title").value.trim();
   const seoDescription = document.getElementById("f-seo-desc").value.trim();
