@@ -17,7 +17,9 @@
     border-radius:8px;color:var(--text-muted);cursor:pointer}
   .auth-tabs button.active{border-color:var(--accent);color:var(--accent)}
   .msg{font-size:.8rem;color:var(--accent);margin-top:8px;min-height:16px}
+  .msg.msg-error{color:#ff5c5c}
   .link-btn{background:none;border:none;color:var(--text-muted);font-size:.8rem;cursor:pointer;margin-top:6px}
+  button[disabled]{opacity:.6;cursor:not-allowed}
 </style>
 </head>
 <body>
@@ -46,56 +48,153 @@
   <div id="auth-msg" class="msg"></div>
 </div>
 
+<!-- ============================================================
+     JARING PENGAMAN: script BIASA (bukan module), jadi SELALU
+     jalan walau script module di bawah gagal total (mis. gara-gara
+     js/auth.js atau js/firebase-config.js error/gagal dimuat).
+     Sebelumnya kalau ini terjadi, semua tombol kelihatan "mati"
+     tanpa penjelasan apapun. Sekarang errornya ditampilkan
+     langsung di halaman supaya kelihatan jelas apa yang salah,
+     bukan diam membisu.
+     ============================================================ -->
+<script>
+  window.addEventListener("error", function (e) {
+    var m = document.getElementById("auth-msg");
+    if (m && !m.textContent) {
+      m.textContent = "Terjadi kesalahan teknis saat memuat halaman (" +
+        (e.message || "skrip gagal dimuat") +
+        "). Coba refresh, atau hubungi admin kalau terus terjadi.";
+      m.classList.add("msg-error");
+    }
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    var m = document.getElementById("auth-msg");
+    if (m && !m.textContent) {
+      m.textContent = "Terjadi kesalahan teknis: " +
+        (e.reason && e.reason.message ? e.reason.message : "proses gagal") +
+        ". Coba refresh, atau hubungi admin kalau terus terjadi.";
+      m.classList.add("msg-error");
+    }
+  });
+</script>
+
 <script type="module">
 import { loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword } from "./js/auth.js";
 
 const msg = document.getElementById("auth-msg");
-const setMsg = (t) => msg.textContent = t;
+
+// ---------- Terjemahkan kode error Firebase ke bahasa manusia ----------
+// Firebase secara default melempar pesan teknis (mis. "Firebase: Error
+// (auth/wrong-password)."). Kalau ditampilkan mentah-mentah, pengguna
+// awam bisa mengira "tidak terjadi apa-apa" padahal sebenarnya sistem
+// SUDAH merespons — cuma pesannya tidak jelas. Fungsi ini menerjemahkan
+// kode-kode yang paling sering muncul ke kalimat yang mudah dipahami.
+function friendlyAuthError(err) {
+  const code = err && err.code ? err.code : "";
+  const map = {
+    "auth/wrong-password": "Email atau password salah.",
+    "auth/user-not-found": "Akun dengan email ini tidak ditemukan.",
+    "auth/invalid-credential": "Email atau password salah.",
+    "auth/invalid-login-credentials": "Email atau password salah.",
+    "auth/email-already-in-use": "Email ini sudah terdaftar. Coba login, atau pakai email lain.",
+    "auth/weak-password": "Password terlalu lemah, minimal 6 karakter.",
+    "auth/invalid-email": "Format email tidak valid.",
+    "auth/missing-email": "Isi email dulu.",
+    "auth/missing-password": "Isi password dulu.",
+    "auth/too-many-requests": "Terlalu banyak percobaan gagal. Coba lagi beberapa saat lagi.",
+    "auth/popup-closed-by-user": "Popup login Google ditutup sebelum selesai.",
+    "auth/cancelled-popup-request": "Popup login Google dibatalkan.",
+    "auth/network-request-failed": "Gagal terhubung ke server. Cek koneksi internet kamu.",
+    "auth/user-disabled": "Akun ini telah dinonaktifkan."
+  };
+  return map[code] || (err && err.message ? err.message : "Terjadi kesalahan, coba lagi.");
+}
+
+const setMsg = (t, isError) => {
+  msg.textContent = t;
+  msg.classList.toggle("msg-error", !!isError);
+};
+
+// Bantu cegah klik ganda saat proses login/daftar sedang berjalan,
+// sekaligus memberi tanda visual bahwa tombol memang merespons klik.
+function withLoadingState(btn, fn) {
+  return async (...args) => {
+    if (btn.disabled) return;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Memproses...";
+    try {
+      await fn(...args);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  };
+}
 
 document.getElementById("tab-login").addEventListener("click", () => {
   document.getElementById("tab-login").classList.add("active");
   document.getElementById("tab-register").classList.remove("active");
   document.getElementById("form-login").style.display = "block";
   document.getElementById("form-register").style.display = "none";
+  setMsg("");
 });
 document.getElementById("tab-register").addEventListener("click", () => {
   document.getElementById("tab-register").classList.add("active");
   document.getElementById("tab-login").classList.remove("active");
   document.getElementById("form-register").style.display = "block";
   document.getElementById("form-login").style.display = "none";
+  setMsg("");
 });
 
-document.getElementById("google-login").addEventListener("click", async () => {
-  try { await loginWithGoogle(); window.location.href = "index.html"; }
-  catch (e) { setMsg(e.message); }
-});
-
-document.getElementById("btn-login").addEventListener("click", async () => {
+const googleBtn = document.getElementById("google-login");
+googleBtn.addEventListener("click", withLoadingState(googleBtn, async () => {
   try {
-    await loginWithEmail(
-      document.getElementById("login-email").value,
-      document.getElementById("login-password").value
-    );
+    await loginWithGoogle();
     window.location.href = "index.html";
-  } catch (e) { setMsg(e.message); }
-});
+  } catch (e) {
+    setMsg(friendlyAuthError(e), true);
+  }
+}));
 
-document.getElementById("btn-register").addEventListener("click", async () => {
+const loginBtn = document.getElementById("btn-login");
+loginBtn.addEventListener("click", withLoadingState(loginBtn, async () => {
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
+  if (!email || !password) { setMsg("Isi email dan password dulu.", true); return; }
+
   try {
-    await registerWithEmail(
-      document.getElementById("reg-email").value,
-      document.getElementById("reg-password").value,
-      document.getElementById("reg-name").value
-    );
-    setMsg("Berhasil daftar! Cek email untuk verifikasi.");
-  } catch (e) { setMsg(e.message); }
-});
+    await loginWithEmail(email, password);
+    window.location.href = "index.html";
+  } catch (e) {
+    setMsg(friendlyAuthError(e), true);
+  }
+}));
+
+const registerBtn = document.getElementById("btn-register");
+registerBtn.addEventListener("click", withLoadingState(registerBtn, async () => {
+  const name = document.getElementById("reg-name").value.trim();
+  const email = document.getElementById("reg-email").value.trim();
+  const password = document.getElementById("reg-password").value;
+  if (!name || !email || !password) { setMsg("Isi nama, email, dan password dulu.", true); return; }
+
+  try {
+    await registerWithEmail(email, password, name);
+    setMsg("Berhasil daftar! Cek email untuk verifikasi.", false);
+  } catch (e) {
+    setMsg(friendlyAuthError(e), true);
+  }
+}));
 
 document.getElementById("btn-forgot").addEventListener("click", async () => {
-  const email = document.getElementById("login-email").value;
-  if (!email) { setMsg("Isi email dulu untuk reset password."); return; }
-  try { await resetPassword(email); setMsg("Link reset password dikirim ke email."); }
-  catch (e) { setMsg(e.message); }
+  const email = document.getElementById("login-email").value.trim();
+  if (!email) { setMsg("Isi email dulu untuk reset password.", true); return; }
+  try {
+    await resetPassword(email);
+    setMsg("Link reset password dikirim ke email.", false);
+  } catch (e) {
+    setMsg(friendlyAuthError(e), true);
+  }
 });
 </script>
 </body>
