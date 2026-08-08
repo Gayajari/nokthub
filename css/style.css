@@ -161,13 +161,6 @@ select.category-select{
 .footer-links a{margin-right:14px}
 .footer-links a:hover{color:var(--accent)}
 
-/* Footer simetris di layar sempit: brand & link jadi center, tidak rata kiri berantakan */
-@media(max-width:640px){
-  .footer-grid{flex-direction:column;align-items:center;text-align:center}
-  .footer-links{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 14px}
-  .footer-links a{margin-right:0}
-}
-
 /* Accessibility */
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
