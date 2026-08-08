@@ -20,6 +20,52 @@ async function loadSiteSettings() {
   } catch (e) { siteSettings = {}; }
 }
 
+// ---------- Terapkan Pengaturan Website ke tampilan ----------
+// Sebelumnya field-field ini (Nama Website, Logo, Favicon, Warna Tema, GA ID)
+// cuma tersimpan di database tapi tidak pernah dibaca untuk mengubah tampilan.
+// Fungsi ini yang menyambungkannya. Kalau elemen dengan id/class terkait
+// belum ada di suatu halaman, bagian itu dilewati saja (aman, tidak error).
+function applySiteSettings() {
+  const s = siteSettings;
+
+  const titleEl = document.getElementById("site-title");
+  if (s.siteName && titleEl) {
+    document.title = document.title.replace(/NOKT HUB/i, s.siteName);
+  }
+  if (s.siteName) {
+    document.querySelectorAll(".site-brand-text").forEach(el => { el.textContent = s.siteName; });
+  }
+
+  const logoImg = document.getElementById("site-logo-img");
+  if (s.logoUrl && logoImg) logoImg.src = s.logoUrl;
+
+  const faviconLink = document.getElementById("site-favicon");
+  if (s.favicon && faviconLink) faviconLink.href = s.favicon;
+
+  const themeMeta = document.getElementById("meta-theme-color");
+  if (s.themeColor) {
+    if (themeMeta) themeMeta.setAttribute("content", s.themeColor);
+    document.documentElement.style.setProperty("--accent", s.themeColor);
+  }
+
+  if (s.gaId && !document.getElementById("ga-script-tag")) {
+    const script1 = document.createElement("script");
+    script1.id = "ga-script-tag";
+    script1.async = true;
+    script1.src = `https://www.googletagmanager.com/gtag/js?id=${s.gaId}`;
+    document.head.appendChild(script1);
+
+    const script2 = document.createElement("script");
+    script2.textContent = `
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '${s.gaId}');
+    `;
+    document.head.appendChild(script2);
+  }
+}
+
 function listenVideos(onUpdate) {
   const q = query(
     collection(db, "videos"),
@@ -311,6 +357,7 @@ function initSearch() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   await loadSiteSettings();
+  applySiteSettings();
   initSearch();
   listenVideos(() => {
     renderHero();
