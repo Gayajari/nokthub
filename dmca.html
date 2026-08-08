@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DMCA — NOKT HUB</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+  (function(){
+    try {
+      var c = JSON.parse(localStorage.getItem("nokt_settings_cache") || "null");
+      if (c && c.themeColor) {
+        document.documentElement.style.setProperty("--accent", c.themeColor);
+      }
+      if (c && c.siteName) {
+        document.write("<style>.site-brand-text{visibility:hidden}</style>");
+      }
+    } catch(e) {}
+  })();
+</script>
 <link rel="stylesheet" href="css/style.css">
 <style>
   .static-page{max-width:760px;margin:0 auto;padding:40px 20px}
@@ -19,7 +32,7 @@
   <header class="site-header">
     <div class="header-row container">
       <a href="index.html" class="brand">
-        <img id="site-logo-img" src="https://i.ibb.co.com/nss27bKz/20260716-103634.png" alt="NOKT HUB logo">
+        <img id="site-logo-img" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" alt="NOKT HUB logo" style="width:32px;height:32px;background:var(--surface);border-radius:6px">
         <span class="site-brand-text">NOKT HUB</span> <span class="dot"></span>
       </a>
       <a href="index.html" class="nav-btn">Home</a>
