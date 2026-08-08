@@ -491,7 +491,7 @@ async function loadSettings() {
   const s = await getSiteSettings(true);
   const map = {
     "s-name": s.siteName, "s-logo": s.logoUrl, "s-favicon": s.favicon,
-    "s-theme": s.themeColor, "s-email": s.contactEmail, "s-ga": s.gaId,
+    "s-theme": s.themeColor, "s-email": s.contactEmail, "s-dmca-email": s.dmcaEmail, "s-ga": s.gaId,
     "s-thumb-api-key": s.thumbApiKey, "s-thumb-endpoint": s.thumbEndpoint, "s-thumb-field": s.thumbField,
     "s-default-thumb": s.defaultThumbnail
   };
@@ -510,7 +510,7 @@ document.addEventListener("click", async (e) => {
   const val = (id) => document.getElementById(id)?.value.trim() || "";
   await setDoc(doc(db, "settings", "site"), {
     siteName: val("s-name"), logoUrl: val("s-logo"), favicon: val("s-favicon"),
-    themeColor: val("s-theme"), contactEmail: val("s-email"), gaId: val("s-ga"),
+    themeColor: val("s-theme"), contactEmail: val("s-email"), dmcaEmail: val("s-dmca-email"), gaId: val("s-ga"),
     thumbApiKey: val("s-thumb-api-key"), thumbEndpoint: val("s-thumb-endpoint"), thumbField: val("s-thumb-field"),
     defaultThumbnail: val("s-default-thumb"),
     videoHostProfiles: collectHostProfilesFromUI(),
