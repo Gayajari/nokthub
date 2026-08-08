@@ -9,6 +9,20 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" id="site-favicon" href="https://i.ibb.co.com/nss27bKz/20260716-103634.png">
 
+<!-- Anti-flash: terapkan warna tema tersimpan SEBELUM halaman digambar,
+     supaya tidak kelihatan "kedip" oranye default sebelum berganti ke
+     warna yang diset admin. Diisi otomatis oleh js/app.js tiap kunjungan. -->
+<script>
+  (function(){
+    try {
+      var c = JSON.parse(localStorage.getItem('nokt_settings_cache') || 'null');
+      if (c && c.themeColor) {
+        document.documentElement.style.setProperty('--accent', c.themeColor);
+      }
+    } catch(e) {}
+  })();
+</script>
+
 <!-- Open Graph -->
 <meta property="og:title" content="NOKT HUB — Streaming Video">
 <meta property="og:description" content="Tonton video terbaru dan terpopuler di NOKT HUB.">
