@@ -45,6 +45,7 @@
     <a href="#" class="active" data-tab="upload">Upload Video</a>
     <a href="#" data-tab="videos">Semua Video</a>
     <a href="#" data-tab="settings">Pengaturan</a>
+    <a href="#" data-tab="pages">Halaman</a>
     <a href="../index.html" style="margin-top:20px;border-top:1px solid var(--border);padding-top:14px">← Kembali ke situs</a>
   </aside>
 
@@ -140,6 +141,31 @@
       <button class="btn" id="btn-add-host-profile" type="button" style="margin-top:4px">+ Tambah Host Video</button>
 
       <button class="btn" id="btn-save-settings" style="margin-top:24px;display:block">Simpan Pengaturan</button>
+    </section>
+
+    <section id="tab-pages" style="display:none">
+      <h1 style="font-family:var(--font-display);margin-bottom:16px">Kelola Halaman Statis</h1>
+      <div class="form-grid full" style="margin-bottom:14px">
+        <div>
+          <label>Pilih Halaman</label>
+          <select id="p-slug">
+            <option value="contact">Kontak</option>
+            <option value="privacy-policy">Privacy Policy</option>
+            <option value="terms">Terms</option>
+            <option value="dmca">DMCA</option>
+            <option value="disclaimer">Disclaimer</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-grid full">
+        <div><label>Judul Halaman</label><input id="p-title"></div>
+        <div>
+          <label>Konten (boleh HTML sederhana: &lt;p&gt;, &lt;h2&gt;, &lt;ul&gt;, &lt;a&gt;)</label>
+          <textarea id="p-content" rows="16"></textarea>
+        </div>
+      </div>
+      <button class="btn" id="btn-save-page" style="margin-top:16px">Simpan Halaman</button>
+      <div id="page-msg" style="margin-top:10px;color:var(--accent);font-size:.85rem"></div>
     </section>
   </main>
 </div>
