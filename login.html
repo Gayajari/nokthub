@@ -3,59 +3,150 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Login — NOKT HUB</title>
+<title id="page-title">Login — NOKT HUB</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- Anti-flash: pola yang sama dengan semua halaman lain di situs ini —
+     terapkan warna tema & nama situs dari cache SEBELUM halaman digambar,
+     supaya tidak kedip. -->
+<script>
+  (function(){
+    try {
+      var c = JSON.parse(localStorage.getItem("nokt_settings_cache") || "null");
+      if (c && c.themeColor) {
+        document.documentElement.style.setProperty("--accent", c.themeColor);
+      }
+      if (c && c.siteName) {
+        document.write("<style>.site-brand-text{visibility:hidden}</style>");
+      }
+    } catch(e) {}
+  })();
+</script>
+
 <link rel="stylesheet" href="css/style.css">
 <style>
-  .auth-wrap{max-width:380px;margin:60px auto;padding:28px;background:var(--surface);
-    border:1px solid var(--border);border-radius:var(--radius)}
-  .auth-wrap h1{font-family:var(--font-display);margin-bottom:18px;text-align:center}
-  .auth-wrap input{width:100%;padding:10px 12px;margin-bottom:10px;background:var(--bg);
-    border:1px solid var(--border);border-radius:8px;color:var(--text)}
-  .auth-tabs{display:flex;gap:8px;margin-bottom:16px}
-  .auth-tabs button{flex:1;padding:8px;background:var(--bg);border:1px solid var(--border);
-    border-radius:8px;color:var(--text-muted);cursor:pointer}
-  .auth-tabs button.active{border-color:var(--accent);color:var(--accent)}
-  .msg{font-size:.8rem;color:var(--accent);margin-top:8px;min-height:16px}
+  body{background:#000}
+  .nf-header{padding:20px 24px}
+  .nf-header .brand{display:inline-flex;align-items:center;gap:8px;text-decoration:none}
+  .nf-header img{width:36px;height:36px;background:var(--surface);border-radius:6px}
+  .nf-header .site-brand-text{
+    font-family:var(--font-display);font-weight:700;font-size:1.4rem;color:var(--accent);
+  }
+
+  .nf-wrap{max-width:420px;margin:20px auto 60px;padding:0 24px}
+  .nf-wrap h1{font-family:var(--font-display);font-size:2rem;margin-bottom:24px}
+
+  .nf-wrap input{
+    width:100%;padding:16px 14px;margin-bottom:14px;background:#000;
+    border:1px solid #4d4d4d;border-radius:5px;color:var(--text);font-size:.95rem;
+  }
+  .nf-wrap input:focus{outline:none;border-color:var(--text)}
+
+  .btn-accent{
+    width:100%;padding:14px;border:none;border-radius:5px;background:var(--accent);
+    color:#fff;font-weight:700;font-size:1rem;cursor:pointer;margin-top:6px;
+  }
+  .btn-accent[disabled]{opacity:.6;cursor:not-allowed}
+
+  .nf-divider{
+    display:flex;align-items:center;gap:12px;color:var(--text-muted);
+    font-size:.82rem;margin:22px 0;
+  }
+  .nf-divider::before, .nf-divider::after{
+    content:"";flex:1;height:1px;background:var(--border);
+  }
+
+  .btn-secondary{
+    width:100%;padding:13px;border-radius:5px;border:1px solid var(--border);
+    background:var(--surface);color:var(--text);font-weight:600;font-size:.92rem;
+    cursor:pointer;
+  }
+  .btn-secondary[disabled]{opacity:.6;cursor:not-allowed}
+
+  .nf-link{
+    color:var(--text);text-decoration:underline;font-size:.92rem;
+    background:none;border:none;cursor:pointer;padding:0;display:block;margin-top:20px;
+  }
+
+  .nf-remember{
+    display:flex;align-items:center;gap:8px;margin-top:18px;font-size:.88rem;
+    color:var(--text-muted);
+  }
+  .nf-remember input{width:auto;margin:0;accent-color:var(--accent)}
+
+  .nf-switch{margin-top:26px;color:var(--text-muted);font-size:.92rem}
+  .nf-switch button{
+    background:none;border:none;color:var(--text);font-weight:700;cursor:pointer;
+    padding:0;font-size:.92rem;
+  }
+
+  .msg{font-size:.85rem;color:var(--accent);margin-top:14px;min-height:18px}
   .msg.msg-error{color:#ff5c5c}
-  .link-btn{background:none;border:none;color:var(--text-muted);font-size:.8rem;cursor:pointer;margin-top:6px}
-  button[disabled]{opacity:.6;cursor:not-allowed}
+
+  #form-register{display:none}
 </style>
 </head>
 <body>
-<div class="auth-wrap">
-  <h1>NOKT HUB</h1>
-  <button class="btn" id="google-login" style="width:100%;margin-bottom:14px">Login dengan Google</button>
-  <div class="auth-tabs">
-    <button id="tab-login" class="active">Login</button>
-    <button id="tab-register">Daftar</button>
-  </div>
 
+<header class="nf-header">
+  <a href="index.html" class="brand">
+    <img id="site-logo-img" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" alt="NOKT HUB logo">
+    <span class="site-brand-text">NOKT HUB</span>
+  </a>
+</header>
+
+<main class="nf-wrap">
+
+  <!-- ---------- FORM LOGIN ---------- -->
   <div id="form-login">
+    <h1>Masuk</h1>
+
     <input type="email" id="login-email" placeholder="Email">
-    <input type="password" id="login-password" placeholder="Password">
-    <button class="btn" id="btn-login" style="width:100%">Login</button>
-    <button class="link-btn" id="btn-forgot">Lupa password?</button>
+    <input type="password" id="login-password" placeholder="Sandi">
+
+    <button class="btn-accent" id="btn-login">Masuk</button>
+
+    <div class="nf-divider">ATAU</div>
+
+    <button class="btn-secondary" id="google-login">Login dengan Google</button>
+
+    <button class="nf-link" id="btn-forgot">Lupa sandi?</button>
+
+    <label class="nf-remember">
+      <input type="checkbox" id="remember-me">
+      Ingat email saya
+    </label>
+
+    <div class="nf-switch">
+      Baru di <span class="site-brand-text">NOKT HUB</span>?
+      <button id="tab-register">Daftar sekarang.</button>
+    </div>
   </div>
 
-  <div id="form-register" style="display:none">
+  <!-- ---------- FORM DAFTAR ---------- -->
+  <div id="form-register">
+    <h1>Daftar Akun</h1>
+
     <input type="text" id="reg-name" placeholder="Nama">
     <input type="email" id="reg-email" placeholder="Email">
-    <input type="password" id="reg-password" placeholder="Password">
-    <button class="btn" id="btn-register" style="width:100%">Daftar</button>
+    <input type="password" id="reg-password" placeholder="Sandi">
+
+    <button class="btn-accent" id="btn-register">Daftar</button>
+
+    <div class="nf-switch">
+      Sudah punya akun?
+      <button id="tab-login">Masuk di sini.</button>
+    </div>
   </div>
 
   <div id="auth-msg" class="msg"></div>
-</div>
+</main>
 
 <!-- ============================================================
-     JARING PENGAMAN: script BIASA (bukan module), jadi SELALU
-     jalan walau script module di bawah gagal total (mis. gara-gara
-     js/auth.js atau js/firebase-config.js error/gagal dimuat).
-     Sebelumnya kalau ini terjadi, semua tombol kelihatan "mati"
-     tanpa penjelasan apapun. Sekarang errornya ditampilkan
-     langsung di halaman supaya kelihatan jelas apa yang salah,
-     bukan diam membisu.
+     Jaring pengaman: script biasa (bukan module), selalu jalan
+     walau script module di bawah gagal total. Sama seperti fix
+     login.html sebelumnya — supaya kalau ada error, kelihatan
+     jelas di layar, bukan diam membisu.
      ============================================================ -->
 <script>
   window.addEventListener("error", function (e) {
@@ -79,28 +170,23 @@
 </script>
 
 <script type="module">
-import { loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword } from "./js/auth.js";
+import { loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword, watchAuthState } from "./js/auth.js";
 
 const msg = document.getElementById("auth-msg");
 
 // ---------- Terjemahkan kode error Firebase ke bahasa manusia ----------
-// Firebase secara default melempar pesan teknis (mis. "Firebase: Error
-// (auth/wrong-password)."). Kalau ditampilkan mentah-mentah, pengguna
-// awam bisa mengira "tidak terjadi apa-apa" padahal sebenarnya sistem
-// SUDAH merespons — cuma pesannya tidak jelas. Fungsi ini menerjemahkan
-// kode-kode yang paling sering muncul ke kalimat yang mudah dipahami.
 function friendlyAuthError(err) {
   const code = err && err.code ? err.code : "";
   const map = {
-    "auth/wrong-password": "Email atau password salah.",
+    "auth/wrong-password": "Email atau sandi salah.",
     "auth/user-not-found": "Akun dengan email ini tidak ditemukan.",
-    "auth/invalid-credential": "Email atau password salah.",
-    "auth/invalid-login-credentials": "Email atau password salah.",
-    "auth/email-already-in-use": "Email ini sudah terdaftar. Coba login, atau pakai email lain.",
-    "auth/weak-password": "Password terlalu lemah, minimal 6 karakter.",
+    "auth/invalid-credential": "Email atau sandi salah.",
+    "auth/invalid-login-credentials": "Email atau sandi salah.",
+    "auth/email-already-in-use": "Email ini sudah terdaftar. Coba masuk, atau pakai email lain.",
+    "auth/weak-password": "Sandi terlalu lemah, minimal 6 karakter.",
     "auth/invalid-email": "Format email tidak valid.",
     "auth/missing-email": "Isi email dulu.",
-    "auth/missing-password": "Isi password dulu.",
+    "auth/missing-password": "Isi sandi dulu.",
     "auth/too-many-requests": "Terlalu banyak percobaan gagal. Coba lagi beberapa saat lagi.",
     "auth/popup-closed-by-user": "Popup login Google ditutup sebelum selesai.",
     "auth/cancelled-popup-request": "Popup login Google dibatalkan.",
@@ -115,8 +201,6 @@ const setMsg = (t, isError) => {
   msg.classList.toggle("msg-error", !!isError);
 };
 
-// Bantu cegah klik ganda saat proses login/daftar sedang berjalan,
-// sekaligus memberi tanda visual bahwa tombol memang merespons klik.
 function withLoadingState(btn, fn) {
   return async (...args) => {
     if (btn.disabled) return;
@@ -132,21 +216,36 @@ function withLoadingState(btn, fn) {
   };
 }
 
-document.getElementById("tab-login").addEventListener("click", () => {
-  document.getElementById("tab-login").classList.add("active");
-  document.getElementById("tab-register").classList.remove("active");
-  document.getElementById("form-login").style.display = "block";
-  document.getElementById("form-register").style.display = "none";
+// ---------- Kalau ternyata sudah login, langsung ke Home ----------
+// (Menghindari orang yang sudah login nyasar balik ke halaman login.)
+watchAuthState((user) => {
+  if (user) window.location.href = "index.html";
+});
+
+// ---------- Ingat email (kenyamanan ringan, disimpan lokal di perangkat) ----------
+const loginEmailInput = document.getElementById("login-email");
+const rememberBox = document.getElementById("remember-me");
+try {
+  const rememberedEmail = localStorage.getItem("nokt_remember_email");
+  if (rememberedEmail) {
+    loginEmailInput.value = rememberedEmail;
+    rememberBox.checked = true;
+  }
+} catch (e) {}
+
+// ---------- Tab switching ----------
+document.getElementById("tab-register").addEventListener("click", () => {
+  document.getElementById("form-login").style.display = "none";
+  document.getElementById("form-register").style.display = "block";
   setMsg("");
 });
-document.getElementById("tab-register").addEventListener("click", () => {
-  document.getElementById("tab-register").classList.add("active");
-  document.getElementById("tab-login").classList.remove("active");
-  document.getElementById("form-register").style.display = "block";
-  document.getElementById("form-login").style.display = "none";
+document.getElementById("tab-login").addEventListener("click", () => {
+  document.getElementById("form-register").style.display = "none";
+  document.getElementById("form-login").style.display = "block";
   setMsg("");
 });
 
+// ---------- Login Google ----------
 const googleBtn = document.getElementById("google-login");
 googleBtn.addEventListener("click", withLoadingState(googleBtn, async () => {
   try {
@@ -157,26 +256,32 @@ googleBtn.addEventListener("click", withLoadingState(googleBtn, async () => {
   }
 }));
 
+// ---------- Login email/sandi ----------
 const loginBtn = document.getElementById("btn-login");
 loginBtn.addEventListener("click", withLoadingState(loginBtn, async () => {
-  const email = document.getElementById("login-email").value.trim();
+  const email = loginEmailInput.value.trim();
   const password = document.getElementById("login-password").value;
-  if (!email || !password) { setMsg("Isi email dan password dulu.", true); return; }
+  if (!email || !password) { setMsg("Isi email dan sandi dulu.", true); return; }
 
   try {
     await loginWithEmail(email, password);
+    try {
+      if (rememberBox.checked) localStorage.setItem("nokt_remember_email", email);
+      else localStorage.removeItem("nokt_remember_email");
+    } catch (e) {}
     window.location.href = "index.html";
   } catch (e) {
     setMsg(friendlyAuthError(e), true);
   }
 }));
 
+// ---------- Daftar ----------
 const registerBtn = document.getElementById("btn-register");
 registerBtn.addEventListener("click", withLoadingState(registerBtn, async () => {
   const name = document.getElementById("reg-name").value.trim();
   const email = document.getElementById("reg-email").value.trim();
   const password = document.getElementById("reg-password").value;
-  if (!name || !email || !password) { setMsg("Isi nama, email, dan password dulu.", true); return; }
+  if (!name || !email || !password) { setMsg("Isi nama, email, dan sandi dulu.", true); return; }
 
   try {
     await registerWithEmail(email, password, name);
@@ -186,16 +291,20 @@ registerBtn.addEventListener("click", withLoadingState(registerBtn, async () => 
   }
 }));
 
+// ---------- Lupa sandi ----------
 document.getElementById("btn-forgot").addEventListener("click", async () => {
-  const email = document.getElementById("login-email").value.trim();
-  if (!email) { setMsg("Isi email dulu untuk reset password.", true); return; }
+  const email = loginEmailInput.value.trim();
+  if (!email) { setMsg("Isi email dulu untuk reset sandi.", true); return; }
   try {
     await resetPassword(email);
-    setMsg("Link reset password dikirim ke email.", false);
+    setMsg("Link reset sandi dikirim ke email.", false);
   } catch (e) {
     setMsg(friendlyAuthError(e), true);
   }
 });
 </script>
+
+<script type="module" src="js/firebase-config.js"></script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>
