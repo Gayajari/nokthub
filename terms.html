@@ -16,16 +16,67 @@
 </style>
 </head>
 <body data-slug="terms">
-  <!-- TODO: tempel header/nav yang sama persis dari index.html di sini -->
+  <header class="site-header">
+    <div class="header-row container">
+      <a href="index.html" class="brand">
+        <img id="site-logo-img" src="https://i.ibb.co.com/nss27bKz/20260716-103634.png" alt="NOKT HUB logo">
+        <span class="site-brand-text">NOKT HUB</span> <span class="dot"></span>
+      </a>
+      <a href="index.html" class="nav-btn">Home</a>
+
+      <div class="search-wrap">
+        <input id="search-input" class="search-input" type="text" placeholder="Cari judul, tag, kategori...">
+        <div id="search-results" class="search-results"></div>
+      </div>
+
+      <select id="category-select" class="category-select">
+        <option value="">Semua Kategori</option>
+      </select>
+
+      <button id="login-btn" class="btn">Login</button>
+      <div id="profile-btn" class="profile-btn nav-btn" style="display:none;cursor:pointer"></div>
+    </div>
+  </header>
 
   <main class="static-page">
     <h1 id="page-title">Terms</h1>
-    <div id="page-content" class="static-page-body">Memuat...</div>
+    <div id="page-content" class="static-page-body">
+<p>Dengan mengakses dan menggunakan NOKT HUB, Anda dianggap menyetujui syarat dan ketentuan berikut.</p>
+<h2>Penggunaan Layanan</h2>
+<p>Layanan ini disediakan untuk keperluan pribadi dan non-komersial.</p>
+<h2>Akun Pengguna</h2>
+<p>Pengguna bertanggung jawab menjaga kerahasiaan akun dan aktivitas yang terjadi di dalamnya.</p>
+<h2>Konten</h2>
+<p>Seluruh konten yang tersedia di situs ini tunduk pada hak cipta pemiliknya masing-masing.</p>
+<h2>Larangan</h2>
+<ul>
+  <li>Menyalahgunakan situs untuk aktivitas ilegal</li>
+  <li>Mengunggah konten yang melanggar hukum</li>
+  <li>Upaya peretasan atau eksploitasi sistem</li>
+</ul>
+<h2>Perubahan Ketentuan</h2>
+<p>Kami berhak mengubah ketentuan ini sewaktu-waktu tanpa pemberitahuan sebelumnya.</p>
+    </div>
   </main>
 
-  <!-- TODO: tempel footer yang sama persis dari index.html di sini -->
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <a href="index.html" class="brand site-brand-text" style="margin-bottom:8px;display:inline-block;text-decoration:none">NOKT HUB</a>
+        <p>© 2026 NOKT HUB. Semua konten milik pemilik hak cipta masing-masing.</p>
+      </div>
+      <div class="footer-links">
+        <a href="contact.html">Kontak</a>
+        <a href="privacy-policy.html">Privacy Policy</a>
+        <a href="terms.html">Terms</a>
+        <a href="dmca.html">DMCA</a>
+        <a href="disclaimer.html">Disclaimer</a>
+      </div>
+    </div>
+  </footer>
 
   <script type="module" src="js/firebase-config.js"></script>
+  <script type="module" src="js/app.js"></script>
   <script type="module" src="js/static-page.js"></script>
 </body>
 </html>
