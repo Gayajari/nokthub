@@ -52,8 +52,12 @@ function applySiteSettings() {
   // ---- Nama di tengah kalimat (mis. teks copyright footer) ----
   // Dibungkus <span class="site-name-inline">NOKT HUB</span> di HTML supaya
   // saat diganti, hanya kata namanya yang berubah, kalimat sekitarnya utuh.
+  // Perlakuan sama seperti .site-brand-text: disembunyikan dulu lewat script
+  // anti-flash di <head>, baru dimunculkan lagi di sini setelah nama siap —
+  // supaya tidak sempat kelihatan nama lama sekilas (anti-kedip).
   document.querySelectorAll(".site-name-inline").forEach(el => {
     if (name) el.textContent = name;
+    el.style.visibility = "visible";
   });
 
   // ---- Logo gambar + alt text ----
