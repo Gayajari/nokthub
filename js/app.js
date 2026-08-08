@@ -10,6 +10,8 @@ const PAGE_SIZE = 12;
 let allPublishedVideos = [];
 let currentPage = 1;
 
+const DEFAULT_LOGO_URL = "https://i.ibb.co.com/nss27bKz/20260716-103634.png";
+
 const PLACEHOLDER_THUMB = 'https://via.placeholder.com/320x180/141416/9A9A9E?text=No+Image';
 let siteSettings = {};
 
@@ -41,7 +43,7 @@ function applySiteSettings() {
   }
 
   const logoImg = document.getElementById("site-logo-img");
-  if (s.logoUrl && logoImg) logoImg.src = s.logoUrl;
+  if (logoImg) logoImg.src = s.logoUrl || DEFAULT_LOGO_URL;
 
   const faviconLink = document.getElementById("site-favicon");
   if (s.favicon && faviconLink) faviconLink.href = s.favicon;
