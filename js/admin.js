@@ -13,11 +13,8 @@ function slugify(str) {
 }
 
 // ============================================================
-// UPLOAD GENERIK — dipakai bareng untuk thumbnail & video.
-// Semua endpoint/API key/format respons diambil dari settings/site
-// (diisi lewat tab Pengaturan), bukan hardcode di kode.
+// UPLOAD GENERIK
 // ============================================================
-
 function getByPath(obj, path) {
   if (!path) return undefined;
   return path.split(".").reduce((o, k) => (o ? o[k] : undefined), obj);
@@ -31,22 +28,16 @@ async function getSiteSettings(forceRefresh = false) {
   return settingsCache;
 }
 
-/**
- * Upload file/blob ke host manapun (foto/video) berdasarkan config dinamis.
- * config: { endpoint, apiKey, urlField, fileFieldName, authType, fileName }
- */
 async function uploadToHost(fileOrBlob, config) {
   const { endpoint, apiKey, urlField, fileFieldName = "file", authType = "query", fileName } = config;
   if (!endpoint || !apiKey) {
-    throw new Error("Endpoint atau API key belum diatur di tab Pengaturan.");
+    throw new Error("Endpoint atau API key host ini belum diisi lengkap di Pengaturan.");
   }
-
   const formData = new FormData();
   formData.append(fileFieldName, fileOrBlob, fileName || fileOrBlob.name || "upload");
 
   let url = endpoint;
   const headers = {};
-
   if (authType === "header") {
     headers["Authorization"] = `Bearer ${apiKey}`;
     headers["AccessKey"] = apiKey;
@@ -57,25 +48,19 @@ async function uploadToHost(fileOrBlob, config) {
 
   const res = await fetch(url, { method: "POST", body: formData, headers });
   const data = await res.json();
-
   if (data.success === false || data.error) {
     throw new Error(data.error?.message || data.message || "Upload gagal.");
   }
-
   const resultUrl = getByPath(data, urlField || "data.url");
   if (!resultUrl) {
-    throw new Error("URL tidak ditemukan di respons API. Cek isian 'Field URL di Respons' pada Pengaturan.");
+    throw new Error("URL tidak ditemukan di respons API. Cek isian 'Field URL di Respons' pada host ini.");
   }
   return resultUrl;
 }
 
-/**
- * Polling status upload video (opsional).
- */
-async function pollVideoStatus(idOrUrl, statusConfig) {
+async function pollUploadStatus(idOrUrl, statusConfig) {
   const { statusEndpoint, apiKey, authType = "query", urlField, statusField, readyValue = "ready" } = statusConfig;
   if (!statusEndpoint) return idOrUrl;
-
   const maxAttempts = 24;
   const delayMs = 5000;
 
@@ -88,11 +73,9 @@ async function pollVideoStatus(idOrUrl, statusConfig) {
     } else {
       url += `&key=${encodeURIComponent(apiKey)}`;
     }
-
     const res = await fetch(url, { headers });
     const data = await res.json();
     const status = getByPath(data, statusField || "status");
-
     if (status === readyValue) {
       return getByPath(data, urlField || "data.url") || idOrUrl;
     }
@@ -102,7 +85,7 @@ async function pollVideoStatus(idOrUrl, statusConfig) {
 }
 
 // ============================================================
-// CROP/ZOOM THUMBNAIL (pakai Cropper.js, dimuat via CDN di dashboard.html)
+// CROP/ZOOM THUMBNAIL (Cropper.js via CDN di dashboard.html)
 // ============================================================
 let cropperInstance = null;
 let pendingCropResolve = null;
@@ -112,7 +95,6 @@ function openCropModal(file) {
     const modal = document.getElementById("crop-modal");
     const img = document.getElementById("crop-image");
     if (!modal || !img || typeof Cropper === "undefined") {
-      // Cropper.js belum termuat (mis. offline) — langsung pakai file asli tanpa crop
       resolve(file);
       return;
     }
@@ -148,7 +130,7 @@ function initCropModalButtons() {
   cancelBtn.addEventListener("click", () => {
     modal.style.display = "none";
     if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
-    pendingCropResolve?.(null); // batal
+    pendingCropResolve?.(null);
     pendingCropResolve = null;
   });
 }
@@ -156,12 +138,11 @@ function initCropModalButtons() {
 // ---------- Upload Thumbnail (manual link ATAU upload file + crop) ----------
 function initThumbUpload() {
   const fileInput = document.getElementById("f-thumb-file");
-  const urlInput = document.getElementById("f-thumb"); // sekarang input teks biasa, bisa diisi manual
+  const urlInput = document.getElementById("f-thumb");
   const preview = document.getElementById("thumb-preview");
   const status = document.getElementById("thumb-upload-status");
   if (!urlInput) return;
 
-  // Preview otomatis kalau admin ketik/tempel link manual
   urlInput.addEventListener("change", () => {
     preview.innerHTML = urlInput.value.trim()
       ? `<img src="${urlInput.value.trim()}" alt="preview thumbnail">` : "";
@@ -171,24 +152,19 @@ function initThumbUpload() {
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files[0];
     if (!file) return;
-
-    const cropped = await openCropModal(file); // buka modal crop/zoom dulu
-    fileInput.value = ""; // reset supaya file yang sama bisa dipilih ulang nanti
-    if (!cropped) return; // user membatalkan crop
+    const cropped = await openCropModal(file);
+    fileInput.value = "";
+    if (!cropped) return;
 
     status.textContent = "Mengupload gambar...";
     preview.innerHTML = "";
     try {
       const s = await getSiteSettings(true);
       const url = await uploadToHost(cropped, {
-        endpoint: s.thumbEndpoint,
-        apiKey: s.thumbApiKey,
-        urlField: s.thumbField,
-        fileFieldName: "image",
-        authType: "query",
-        fileName: "thumbnail.jpg"
+        endpoint: s.thumbEndpoint, apiKey: s.thumbApiKey, urlField: s.thumbField,
+        fileFieldName: "image", authType: "query", fileName: "thumbnail.jpg"
       });
-      urlInput.value = url; // isi otomatis field manual, tetap bisa diedit/diganti tangan
+      urlInput.value = url;
       preview.innerHTML = `<img src="${url}" alt="preview thumbnail">`;
       status.textContent = "Berhasil diupload.";
     } catch (err) {
@@ -198,16 +174,7 @@ function initThumbUpload() {
 }
 
 // ============================================================
-// AUTO-THUMBNAIL — dipanggil saat Simpan Video kalau field
-// thumbnail dikosongkan (sengaja atau lupa). Urutan percobaan:
-// 1) YouTube (thumbnail resmi via img.youtube.com)
-// 2) Vimeo (thumbnail resmi via vumbnail.com)
-// 3) File video langsung (.mp4/.webm/dst) -> ambil 1 frame via canvas,
-//    lalu upload otomatis ke host thumbnail yang sudah diatur.
-//    Catatan: langkah ini bisa gagal kalau server video tidak
-//    mengizinkan akses cross-origin (CORS) — di luar kendali kode ini.
-// Kalau semua gagal, kembalikan null; app.js akan tetap menampilkan
-// placeholder rapi sebagai jaring pengaman terakhir (bukan gambar pecah).
+// AUTO-THUMBNAIL MULTI-HOST
 // ============================================================
 function extractAutoThumbFromEmbed(embedUrl) {
   if (!embedUrl) return null;
@@ -222,6 +189,39 @@ function extractAutoThumbFromEmbed(embedUrl) {
   return null;
 }
 
+function findMatchingHostProfile(embedUrl, profiles) {
+  if (!embedUrl || !Array.isArray(profiles)) return null;
+  return profiles.find(p => {
+    if (!p.domainPattern) return false;
+    try { return new RegExp(p.domainPattern, "i").test(embedUrl); }
+    catch (e) { return false; }
+  }) || null;
+}
+
+function extractCodeFromEmbed(embedUrl, codePattern) {
+  if (!embedUrl || !codePattern) return null;
+  try {
+    const re = new RegExp(codePattern);
+    const m = embedUrl.match(re);
+    return m ? m[1] : null;
+  } catch (e) { return null; }
+}
+
+async function fetchThumbnailFromHostProfile(embedUrl, profile) {
+  const code = extractCodeFromEmbed(embedUrl, profile.codePattern);
+  if (!code) return null;
+  try {
+    const sep = profile.infoEndpoint.includes("?") ? "&" : "?";
+    const paramName = profile.codeParam || "file_code";
+    const url = `${profile.infoEndpoint}${sep}key=${encodeURIComponent(profile.apiKey || "")}&${paramName}=${encodeURIComponent(code)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return getByPath(data, profile.thumbField || "result.0.player_img") || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 function captureFrameFromVideoUrl(url) {
   return new Promise((resolve) => {
     const video = document.createElement("video");
@@ -230,11 +230,9 @@ function captureFrameFromVideoUrl(url) {
     video.preload = "auto";
     video.src = url;
 
-    const cleanupResolve = (val) => { resolve(val); };
-
     video.addEventListener("loadeddata", () => {
       try { video.currentTime = Math.min(1, (video.duration || 2) / 2); }
-      catch (e) { cleanupResolve(null); }
+      catch (e) { resolve(null); }
     });
     video.addEventListener("seeked", () => {
       try {
@@ -242,13 +240,11 @@ function captureFrameFromVideoUrl(url) {
         canvas.width = video.videoWidth || 640;
         canvas.height = video.videoHeight || 360;
         canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((blob) => cleanupResolve(blob), "image/jpeg", 0.85);
-      } catch (e) {
-        cleanupResolve(null); // biasanya kena batasan CORS dari server video
-      }
+        canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.85);
+      } catch (e) { resolve(null); }
     });
-    video.addEventListener("error", () => cleanupResolve(null));
-    setTimeout(() => cleanupResolve(null), 8000); // timeout pengaman
+    video.addEventListener("error", () => resolve(null));
+    setTimeout(() => resolve(null), 8000);
   });
 }
 
@@ -256,27 +252,31 @@ async function autoGenerateThumbnail(embedUrl) {
   const staticThumb = extractAutoThumbFromEmbed(embedUrl);
   if (staticThumb) return staticThumb;
 
+  const s = await getSiteSettings(true);
+
+  const profile = findMatchingHostProfile(embedUrl, s.videoHostProfiles);
+  if (profile) {
+    const apiThumb = await fetchThumbnailFromHostProfile(embedUrl, profile);
+    if (apiThumb) return apiThumb;
+  }
+
   const isDirectVideoFile = /\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(embedUrl);
   if (isDirectVideoFile) {
     const blob = await captureFrameFromVideoUrl(embedUrl);
     if (blob) {
       try {
-        const s = await getSiteSettings(true);
         return await uploadToHost(blob, {
-          endpoint: s.thumbEndpoint,
-          apiKey: s.thumbApiKey,
-          urlField: s.thumbField,
-          fileFieldName: "image",
-          authType: "query",
-          fileName: "auto-thumb.jpg"
+          endpoint: s.thumbEndpoint, apiKey: s.thumbApiKey, urlField: s.thumbField,
+          fileFieldName: "image", authType: "query", fileName: "auto-thumb.jpg"
         });
       } catch (e) { return null; }
     }
   }
-  return null; // tidak bisa diambil otomatis — dibiarkan kosong, app.js yang tangani fallback
+  return null;
 }
 
 // ---------- Upload Video dari Galeri ----------
+// Host yang dipakai = host dengan radio "aktif untuk upload" di Daftar Host Video.
 function initVideoUpload() {
   const fileInput = document.getElementById("f-video-file");
   const embedInput = document.getElementById("f-embed");
@@ -286,32 +286,45 @@ function initVideoUpload() {
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files[0];
     if (!file) return;
-    status.textContent = "Mengupload video...";
+
+    const s = await getSiteSettings(true);
+    const profiles = Array.isArray(s.videoHostProfiles) ? s.videoHostProfiles : [];
+    const activeHost = profiles.find(p => p.name === s.activeUploadHostName);
+
+    if (!activeHost) {
+      status.textContent = "Belum ada host video yang dijadikan aktif untuk upload. Atur dulu di tab Pengaturan → Daftar Host Video.";
+      return;
+    }
+    if (!activeHost.uploadEndpoint || !activeHost.apiKey) {
+      status.textContent = `Endpoint/API key upload untuk "${activeHost.name}" belum lengkap di Pengaturan.`;
+      return;
+    }
+
+    status.textContent = `Mengupload video ke ${activeHost.name}...`;
     try {
-      const s = await getSiteSettings(true);
       let url = await uploadToHost(file, {
-        endpoint: s.videoEndpoint,
-        apiKey: s.videoApiKey,
-        urlField: s.videoField,
+        endpoint: activeHost.uploadEndpoint,
+        apiKey: activeHost.apiKey,
+        urlField: activeHost.uploadUrlField,
         fileFieldName: "file",
-        authType: s.videoAuthType || "query",
+        authType: activeHost.uploadAuthType || "query",
         fileName: file.name
       });
 
-      if (s.videoStatusEndpoint) {
+      if (activeHost.uploadStatusEndpoint) {
         status.textContent = "Video sedang diproses server, mohon tunggu...";
-        url = await pollVideoStatus(url, {
-          statusEndpoint: s.videoStatusEndpoint,
-          apiKey: s.videoApiKey,
-          authType: s.videoAuthType || "query",
-          urlField: s.videoField,
-          statusField: s.videoStatusField,
-          readyValue: s.videoReadyValue || "ready"
+        url = await pollUploadStatus(url, {
+          statusEndpoint: activeHost.uploadStatusEndpoint,
+          apiKey: activeHost.apiKey,
+          authType: activeHost.uploadAuthType || "query",
+          urlField: activeHost.uploadUrlField,
+          statusField: activeHost.uploadStatusField,
+          readyValue: activeHost.uploadReadyValue || "ready"
         });
       }
 
-      embedInput.value = url; // otomatis isi field embed manual, tetap bisa diedit
-      status.textContent = "Video berhasil diupload, link embed terisi otomatis.";
+      embedInput.value = url;
+      status.textContent = `Video berhasil diupload ke ${activeHost.name}, link embed terisi otomatis.`;
     } catch (err) {
       status.textContent = "Gagal upload video: " + err.message;
     }
@@ -355,61 +368,126 @@ function initTabs() {
 }
 
 // ============================================================
-// PENGATURAN (Data Utama)
+// PENGATURAN + Daftar Host Video terpadu (thumbnail & upload jadi satu)
 // ============================================================
+let hostProfilesState = [];
+let activeUploadHostName = "";
+
+function renderHostProfilesTable() {
+  const wrap = document.getElementById("video-host-list");
+  if (!wrap) return;
+  wrap.innerHTML = hostProfilesState.map((p, i) => `
+    <div class="host-profile-row" data-i="${i}" style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+      <div class="form-grid">
+        <div><label>Nama Host</label><input class="hp-name" value="${p.name || ""}" placeholder="mis. Vidara"></div>
+        <div><label>Pola Domain (regex)</label><input class="hp-domain" value="${p.domainPattern || ""}" placeholder="mis. vidara\\.to"></div>
+      </div>
+
+      <div class="form-grid full" style="margin-top:10px"><label style="margin-bottom:0;font-weight:600">Untuk Auto-Thumbnail</label></div>
+      <div class="form-grid">
+        <div><label>Endpoint Info Video</label><input class="hp-endpoint" value="${p.infoEndpoint || ""}" placeholder="https://api.vidara.so/v1/file/info"></div>
+        <div><label>API Key Host Ini</label><input class="hp-apikey" value="${p.apiKey || ""}" placeholder="API key dari akun host ini"></div>
+        <div><label>Nama Parameter File Code</label><input class="hp-codeparam" value="${p.codeParam || ""}" placeholder="mis. file_code"></div>
+        <div><label>Pola Ambil File Code dari Link (regex)</label><input class="hp-codepattern" value="${p.codePattern || ""}" placeholder="mis. /e/([a-zA-Z0-9]+)"></div>
+        <div class="form-grid full"><label>Field Thumbnail di Respons</label><input class="hp-thumbfield" value="${p.thumbField || ""}" placeholder="mis. result.0.player_img"></div>
+      </div>
+
+      <div class="form-grid full" style="margin-top:10px"><label style="margin-bottom:0;font-weight:600">Untuk Upload Video dari Galeri</label></div>
+      <div class="form-grid">
+        <div><label>Endpoint Upload Video</label><input class="hp-upload-endpoint" value="${p.uploadEndpoint || ""}" placeholder="https://api.vidara.so/v1/upload"></div>
+        <div><label>API Key Dikirim Sebagai</label>
+          <select class="hp-upload-authtype">
+            <option value="query" ${p.uploadAuthType !== "header" ? "selected" : ""}>Query Param</option>
+            <option value="header" ${p.uploadAuthType === "header" ? "selected" : ""}>Header (Bearer/AccessKey)</option>
+          </select>
+        </div>
+        <div><label>Field URL Video di Respons</label><input class="hp-upload-urlfield" value="${p.uploadUrlField || ""}" placeholder="mis. result.0.embed_url"></div>
+        <div><label>Endpoint Cek Status (opsional)</label><input class="hp-upload-status-endpoint" value="${p.uploadStatusEndpoint || ""}"></div>
+        <div><label>Field Status di Respons</label><input class="hp-upload-status-field" value="${p.uploadStatusField || ""}" placeholder="mis. status"></div>
+        <div><label>Nilai Status "Siap"</label><input class="hp-upload-ready-value" value="${p.uploadReadyValue || ""}" placeholder="mis. ready"></div>
+      </div>
+
+      <label style="margin-top:10px;display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="radio" name="active-upload-host" class="hp-active-upload" style="width:auto" ${p.name && p.name === activeUploadHostName ? "checked" : ""}>
+        Jadikan host ini aktif untuk "Upload Video dari Galeri"
+      </label>
+
+      <button type="button" class="share-btn hp-remove" style="margin-top:10px">Hapus Host Ini</button>
+    </div>`).join("") || `<p style="color:var(--text-muted);font-size:.82rem">Belum ada host video ditambahkan.</p>`;
+}
+
+function collectHostProfilesFromUI() {
+  const rows = document.querySelectorAll("#video-host-list .host-profile-row");
+  return Array.from(rows).map(row => ({
+    name: row.querySelector(".hp-name").value.trim(),
+    domainPattern: row.querySelector(".hp-domain").value.trim(),
+    infoEndpoint: row.querySelector(".hp-endpoint").value.trim(),
+    apiKey: row.querySelector(".hp-apikey").value.trim(),
+    codeParam: row.querySelector(".hp-codeparam").value.trim(),
+    codePattern: row.querySelector(".hp-codepattern").value.trim(),
+    thumbField: row.querySelector(".hp-thumbfield").value.trim(),
+    uploadEndpoint: row.querySelector(".hp-upload-endpoint").value.trim(),
+    uploadAuthType: row.querySelector(".hp-upload-authtype").value,
+    uploadUrlField: row.querySelector(".hp-upload-urlfield").value.trim(),
+    uploadStatusEndpoint: row.querySelector(".hp-upload-status-endpoint").value.trim(),
+    uploadStatusField: row.querySelector(".hp-upload-status-field").value.trim(),
+    uploadReadyValue: row.querySelector(".hp-upload-ready-value").value.trim()
+  })).filter(p => p.name || p.domainPattern);
+}
+
+function getActiveUploadHostNameFromUI() {
+  const checked = document.querySelector("#video-host-list .hp-active-upload:checked");
+  if (!checked) return "";
+  const row = checked.closest(".host-profile-row");
+  return row.querySelector(".hp-name").value.trim();
+}
+
+document.addEventListener("click", (e) => {
+  if (e.target.id === "btn-add-host-profile") {
+    hostProfilesState.push({});
+    renderHostProfilesTable();
+  }
+  if (e.target.classList.contains("hp-remove")) {
+    const row = e.target.closest(".host-profile-row");
+    const i = parseInt(row.dataset.i, 10);
+    hostProfilesState.splice(i, 1);
+    renderHostProfilesTable();
+  }
+});
+
 async function loadSettings() {
   const s = await getSiteSettings(true);
   const map = {
-    "s-name": s.siteName,
-    "s-logo": s.logoUrl,
-    "s-favicon": s.favicon,
-    "s-theme": s.themeColor,
-    "s-email": s.contactEmail,
-    "s-ga": s.gaId,
-    "s-thumb-api-key": s.thumbApiKey,
-    "s-thumb-endpoint": s.thumbEndpoint,
-    "s-thumb-field": s.thumbField,
-    "s-video-api-key": s.videoApiKey,
-    "s-video-endpoint": s.videoEndpoint,
-    "s-video-field": s.videoField,
-    "s-video-auth-type": s.videoAuthType,
-    "s-video-status-endpoint": s.videoStatusEndpoint,
-    "s-video-status-field": s.videoStatusField,
-    "s-video-ready-value": s.videoReadyValue
+    "s-name": s.siteName, "s-logo": s.logoUrl, "s-favicon": s.favicon,
+    "s-theme": s.themeColor, "s-email": s.contactEmail, "s-ga": s.gaId,
+    "s-thumb-api-key": s.thumbApiKey, "s-thumb-endpoint": s.thumbEndpoint, "s-thumb-field": s.thumbField
   };
   Object.entries(map).forEach(([id, val]) => {
     const el = document.getElementById(id);
     if (el && val) el.value = val;
   });
+
+  hostProfilesState = Array.isArray(s.videoHostProfiles) ? s.videoHostProfiles : [];
+  activeUploadHostName = s.activeUploadHostName || "";
+  renderHostProfilesTable();
 }
 
 document.addEventListener("click", async (e) => {
   if (e.target.id !== "btn-save-settings") return;
   const val = (id) => document.getElementById(id)?.value.trim() || "";
   await setDoc(doc(db, "settings", "site"), {
-    siteName: val("s-name"),
-    logoUrl: val("s-logo"),
-    favicon: val("s-favicon"),
-    themeColor: val("s-theme"),
-    contactEmail: val("s-email"),
-    gaId: val("s-ga"),
-    thumbApiKey: val("s-thumb-api-key"),
-    thumbEndpoint: val("s-thumb-endpoint"),
-    thumbField: val("s-thumb-field"),
-    videoApiKey: val("s-video-api-key"),
-    videoEndpoint: val("s-video-endpoint"),
-    videoField: val("s-video-field"),
-    videoAuthType: val("s-video-auth-type"),
-    videoStatusEndpoint: val("s-video-status-endpoint"),
-    videoStatusField: val("s-video-status-field"),
-    videoReadyValue: val("s-video-ready-value")
+    siteName: val("s-name"), logoUrl: val("s-logo"), favicon: val("s-favicon"),
+    themeColor: val("s-theme"), contactEmail: val("s-email"), gaId: val("s-ga"),
+    thumbApiKey: val("s-thumb-api-key"), thumbEndpoint: val("s-thumb-endpoint"), thumbField: val("s-thumb-field"),
+    videoHostProfiles: collectHostProfilesFromUI(),
+    activeUploadHostName: getActiveUploadHostNameFromUI()
   }, { merge: true });
   settingsCache = null;
   alert("Pengaturan tersimpan.");
 });
 
 // ============================================================
-// KATEGORI & TAG (tidak berubah)
+// KATEGORI & TAG
 // ============================================================
 async function upsertCategory(name) {
   if (!name) return;
@@ -496,7 +574,6 @@ document.addEventListener("click", async (e) => {
 
   if (!title || !embedUrl) { msg.textContent = "Judul dan Link Embed wajib diisi."; return; }
 
-  // Thumbnail kosong (sengaja/lupa) -> coba buat otomatis dari video sebelum simpan
   if (!thumbnail) {
     msg.textContent = "Membuat thumbnail otomatis dari video...";
     const auto = await autoGenerateThumbnail(embedUrl);
