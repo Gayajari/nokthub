@@ -7,6 +7,20 @@
 <meta id="meta-desc" name="description" content="">
 <meta name="theme-color" content="#0A0A0B">
 <link rel="canonical" id="canonical-link" href="">
+
+<!-- Anti-flash: terapkan warna tema tersimpan SEBELUM halaman digambar,
+     supaya tidak kelihatan "kedip" oranye default sebelum berganti ke
+     warna yang diset admin. Diisi otomatis oleh js/app.js tiap kunjungan. -->
+<script>
+  (function(){
+    try {
+      var c = JSON.parse(localStorage.getItem('nokt_settings_cache') || 'null');
+      if (c && c.themeColor) {
+        document.documentElement.style.setProperty('--accent', c.themeColor);
+      }
+    } catch(e) {}
+  })();
+</script>
 <meta property="og:title" id="og-title" content="">
 <meta property="og:description" id="og-desc" content="">
 <meta property="og:image" id="og-image" content="">
