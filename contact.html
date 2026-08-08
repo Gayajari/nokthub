@@ -15,6 +15,9 @@
       if (c && c.siteName) {
         document.write("<style>.site-brand-text,.site-name-inline{visibility:hidden}</style>");
       }
+      if (c && c.contactEmail) {
+        document.write("<style>.site-contact-email{visibility:hidden}</style>");
+      }
     } catch(e) {}
   })();
 </script>
@@ -56,7 +59,7 @@
     <div id="page-content" class="static-page-body">
 <p>Punya pertanyaan, saran, atau butuh bantuan? Hubungi kami melalui saluran berikut:</p>
 <h2>Email</h2>
-<p>Kirim pesan ke: <a href="mailto:isi-email-kamu@domain.com"></a></p>
+<p>Kirim pesan ke: <a href="mailto:isi-email-kamu@domain.com" class="site-contact-email">isi-email-kamu@domain.com</a></p>
 <h2>Waktu Respons</h2>
 <p>Kami biasanya membalas dalam 1–3 hari kerja.</p>
 <h2>Laporan Konten</h2>

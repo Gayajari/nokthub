@@ -15,6 +15,9 @@
       if (c && c.siteName) {
         document.write("<style>.site-brand-text,.site-name-inline{visibility:hidden}</style>");
       }
+      if (c && c.dmcaEmail) {
+        document.write("<style>.site-dmca-email{visibility:hidden}</style>");
+      }
     } catch(e) {}
   })();
 </script>
@@ -54,7 +57,7 @@
   <main class="static-page">
     <h1 id="page-title">DMCA</h1>
     <div id="page-content" class="static-page-body">
-<p><span class="site-name-inline">NOKT HUB</span> menghormati hak kekayaan intelektual pihak lain dan mengharapkan pengguna melakukan hal yang sama.</p>
+<p>NOKT HUB menghormati hak kekayaan intelektual pihak lain dan mengharapkan pengguna melakukan hal yang sama.</p>
 <h2>Cara Melaporkan Pelanggaran</h2>
 <p>Jika Anda pemilik hak cipta dan menemukan konten yang melanggar hak Anda di situs ini, kirimkan laporan resmi berisi:</p>
 <ul>
@@ -64,7 +67,7 @@
   <li>Pernyataan itikad baik bahwa penggunaan tidak diizinkan</li>
 </ul>
 <h2>Kirim Laporan ke</h2>
-<p><a href="mailto:isi-email-dmca@domain.com">isi-email-dmca@domain.com</a></p>
+<p><a href="mailto:isi-email-dmca@domain.com" class="site-dmca-email">isi-email-dmca@domain.com</a></p>
 <h2>Proses Tindak Lanjut</h2>
 <p>Konten yang terbukti melanggar akan dihapus dalam waktu 1–7 hari kerja setelah laporan diverifikasi.</p>
     </div>
