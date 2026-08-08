@@ -26,6 +26,27 @@ async function loadSiteSettings() {
   } catch (e) { siteSettings = {}; }
 }
 
+// ---------- Terapkan cache dulu (instan, tanpa nunggu network) ----------
+// Dipanggil SEBELUM loadSiteSettings() (yang nunggu Firestore). Tujuannya:
+// untuk pengunjung yang sudah pernah buka situs ini sebelumnya, nama/warna
+// situs langsung terisi dari data kunjungan terakhir yang tersimpan di
+// localStorage — jadi elemen yang tadinya disembunyikan lewat script
+// anti-flash di <head> bisa langsung dimunculkan lagi dengan teks yang
+// (kemungkinan besar) sudah benar, tanpa nunggu round-trip ke server.
+// Kalau ternyata nama di server sudah berubah sejak kunjungan terakhir,
+// applySiteSettings() akan dipanggil ULANG setelah data asli datang
+// (lihat alur di bagian bawah file), jadi tetap ter-update.
+function applyCachedSiteSettings() {
+  let cached = {};
+  try {
+    cached = JSON.parse(localStorage.getItem("nokt_settings_cache") || "null") || {};
+  } catch (e) { cached = {}; }
+  if (Object.keys(cached).length) {
+    siteSettings = cached;
+    applySiteSettings();
+  }
+}
+
 // ---------- Terapkan Pengaturan Website ke tampilan ----------
 // Field-field ini (Nama Website, Logo, Favicon, Warna Tema, GA ID) disambungkan
 // ke semua tempat nama web muncul di halaman. Kalau elemen terkait belum ada
@@ -410,8 +431,18 @@ function initSearch() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  // 1) Terapkan dulu dari cache localStorage — INSTAN, tanpa nunggu Firestore.
+  //    Ini yang bikin kedip nama/warna nyaris hilang buat pengunjung yang
+  //    sudah pernah buka situs ini sebelumnya.
+  applyCachedSiteSettings();
+
+  // 2) Baru ambil data terbaru dari server, lalu terapkan ulang — supaya
+  //    kalau ada perubahan nama/warna sejak kunjungan terakhir, tetap ikut
+  //    ter-update (dan cache di localStorage ikut diperbarui untuk kunjungan
+  //    berikutnya).
   await loadSiteSettings();
   applySiteSettings();
+
   initSearch();
   listenVideos(() => {
     renderHero();
