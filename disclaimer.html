@@ -16,16 +16,61 @@
 </style>
 </head>
 <body data-slug="disclaimer">
-  <!-- TODO: tempel header/nav yang sama persis dari index.html di sini -->
+  <header class="site-header">
+    <div class="header-row container">
+      <a href="index.html" class="brand">
+        <img id="site-logo-img" src="https://i.ibb.co.com/nss27bKz/20260716-103634.png" alt="NOKT HUB logo">
+        <span class="site-brand-text">NOKT HUB</span> <span class="dot"></span>
+      </a>
+      <a href="index.html" class="nav-btn">Home</a>
+
+      <div class="search-wrap">
+        <input id="search-input" class="search-input" type="text" placeholder="Cari judul, tag, kategori...">
+        <div id="search-results" class="search-results"></div>
+      </div>
+
+      <select id="category-select" class="category-select">
+        <option value="">Semua Kategori</option>
+      </select>
+
+      <button id="login-btn" class="btn">Login</button>
+      <div id="profile-btn" class="profile-btn nav-btn" style="display:none;cursor:pointer"></div>
+    </div>
+  </header>
 
   <main class="static-page">
     <h1 id="page-title">Disclaimer</h1>
-    <div id="page-content" class="static-page-body">Memuat...</div>
+    <div id="page-content" class="static-page-body">
+<p>Seluruh konten di NOKT HUB disediakan "sebagaimana adanya" tanpa jaminan apapun.</p>
+<h2>Tidak Menyimpan Konten</h2>
+<p>NOKT HUB tidak meng-hosting file video secara langsung. Konten diambil dari pihak ketiga/pengguna.</p>
+<h2>Tanggung Jawab Konten</h2>
+<p>Kami tidak bertanggung jawab atas keakuratan, legalitas, atau kualitas konten yang ditampilkan.</p>
+<h2>Penggunaan Risiko Sendiri</h2>
+<p>Penggunaan situs ini sepenuhnya menjadi tanggung jawab pengguna.</p>
+<h2>Perubahan Disclaimer</h2>
+<p>Disclaimer ini dapat berubah sewaktu-waktu tanpa pemberitahuan.</p>
+    </div>
   </main>
 
-  <!-- TODO: tempel footer yang sama persis dari index.html di sini -->
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <a href="index.html" class="brand site-brand-text" style="margin-bottom:8px;display:inline-block;text-decoration:none">NOKT HUB</a>
+        <p>© 2026 NOKT HUB. Semua konten milik pemilik hak cipta masing-masing.</p>
+      </div>
+      <div class="footer-links">
+        <a href="contact.html">Kontak</a>
+        <a href="privacy-policy.html">Privacy Policy</a>
+        <a href="terms.html">Terms</a>
+        <a href="dmca.html">DMCA</a>
+        <a href="disclaimer.html">Disclaimer</a>
+      </div>
+    </div>
+  </footer>
 
   <script type="module" src="js/firebase-config.js"></script>
+  <script type="module" src="js/app.js"></script>
   <script type="module" src="js/static-page.js"></script>
 </body>
 </html>
