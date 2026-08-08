@@ -383,6 +383,7 @@ onAuthStateChanged(auth, async (user) => {
   initTabs();
   loadVideoTable();
   loadSettings();
+  loadPageEditor(document.getElementById("p-slug")?.value || "contact");
 });
 
 function initTabs() {
@@ -391,7 +392,7 @@ function initTabs() {
       e.preventDefault();
       document.querySelectorAll(".sidebar a[data-tab]").forEach(a => a.classList.remove("active"));
       link.classList.add("active");
-      ["upload", "videos", "settings"].forEach(t => {
+      ["upload", "videos", "settings", "pages"].forEach(t => {
         document.getElementById(`tab-${t}`).style.display = t === link.dataset.tab ? "block" : "none";
       });
     });
@@ -517,6 +518,52 @@ document.addEventListener("click", async (e) => {
   }, { merge: true });
   settingsCache = null;
   alert("Pengaturan tersimpan.");
+});
+
+// ============================================================
+// KELOLA HALAMAN STATIS (Kontak, Privacy Policy, Terms, DMCA, Disclaimer)
+// ============================================================
+const STATIC_PAGE_DEFAULT_TITLES = {
+  "contact": "Kontak",
+  "privacy-policy": "Privacy Policy",
+  "terms": "Terms",
+  "dmca": "DMCA",
+  "disclaimer": "Disclaimer"
+};
+
+async function loadPageEditor(slug) {
+  const titleInput = document.getElementById("p-title");
+  const contentInput = document.getElementById("p-content");
+  const msg = document.getElementById("page-msg");
+  if (!titleInput || !contentInput) return;
+  msg.textContent = "";
+  const snap = await getDoc(doc(db, "pages", slug));
+  if (snap.exists()) {
+    const d = snap.data();
+    titleInput.value = d.title || STATIC_PAGE_DEFAULT_TITLES[slug] || "";
+    contentInput.value = d.content || "";
+  } else {
+    titleInput.value = STATIC_PAGE_DEFAULT_TITLES[slug] || "";
+    contentInput.value = "";
+  }
+}
+
+document.addEventListener("change", (e) => {
+  if (e.target.id === "p-slug") loadPageEditor(e.target.value);
+});
+
+document.addEventListener("click", async (e) => {
+  if (e.target.id !== "btn-save-page") return;
+  const slug = document.getElementById("p-slug").value;
+  const title = document.getElementById("p-title").value.trim();
+  const content = document.getElementById("p-content").value;
+  const msg = document.getElementById("page-msg");
+  try {
+    await setDoc(doc(db, "pages", slug), { title, content, updatedAt: serverTimestamp() }, { merge: true });
+    msg.textContent = "Halaman berhasil disimpan.";
+  } catch (err) {
+    msg.textContent = "Gagal menyimpan: " + err.message;
+  }
 });
 
 // ============================================================
