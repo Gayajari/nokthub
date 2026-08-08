@@ -7,13 +7,12 @@ import {
 } from "./firebase-config.js";
 
 const PAGE_SIZE = 12;
-let allPublishedVideos = []; // cache client-side untuk paginasi + search instan
+let allPublishedVideos = [];
 let currentPage = 1;
 
 const PLACEHOLDER_THUMB = 'https://via.placeholder.com/320x180/141416/9A9A9E?text=No+Image';
-let siteSettings = {}; // dimuat sekali dari settings/site (dipakai untuk Thumbnail Default)
+let siteSettings = {};
 
-// ---------- Muat pengaturan situs (untuk Thumbnail Default, dll) ----------
 async function loadSiteSettings() {
   try {
     const snap = await getDoc(doc(db, "settings", "site"));
@@ -21,7 +20,6 @@ async function loadSiteSettings() {
   } catch (e) { siteSettings = {}; }
 }
 
-// ---------- Load semua video publish (realtime) ----------
 function listenVideos(onUpdate) {
   const q = query(
     collection(db, "videos"),
@@ -34,7 +32,6 @@ function listenVideos(onUpdate) {
   });
 }
 
-// ---------- Popular Score ----------
 function computePopularScore(v) {
   return (v.viewCount || 0) * 0.6
        + (v.likeCount || 0) * 0.2
@@ -42,15 +39,30 @@ function computePopularScore(v) {
        + (v.shareCount || 0) * 0.1;
 }
 
+// ---------- Normalisasi link gambar (jaring pengaman untuk data lama) ----------
+// Sama dengan yang dijalankan admin.js saat menyimpan, dijalankan lagi di sini
+// supaya video yang thumbnail-nya sempat tersimpan sebagai link viewer
+// (Google Drive/Dropbox mentah) sebelum fitur ini ada tetap bisa tampil.
+function normalizeThumbLink(url) {
+  if (!url) return url;
+  const trimmed = url.trim();
+
+  const gdrive = trimmed.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/)
+              || trimmed.match(/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/)
+              || trimmed.match(/drive\.google\.com\/uc\?id=([a-zA-Z0-9_-]+)/);
+  if (gdrive) return `https://drive.google.com/uc?export=view&id=${gdrive[1]}`;
+
+  if (trimmed.includes("dropbox.com")) {
+    if (trimmed.includes("dl=0")) return trimmed.replace("dl=0", "raw=1");
+    if (!trimmed.includes("raw=1") && !trimmed.includes("dl=1")) {
+      return trimmed + (trimmed.includes("?") ? "&raw=1" : "?raw=1");
+    }
+  }
+
+  return trimmed;
+}
+
 // ---------- Thumbnail fallback berlapis ----------
-// 1) Manual/otomatis tersimpan (v.thumbnail, sudah diisi saat admin publish,
-//    baik manual, upload+crop, atau auto-generate dari video)
-// 2) Auto dari metadata provider (YouTube, Vimeo) — jaring pengaman untuk
-//    video lama yang disimpan sebelum fitur auto-thumbnail ada
-// 3) Thumbnail Default dari Website Settings
-// 4) Placeholder bawaan (rapi, bukan gambar pecah)
-// Kalau gambar yang dipilih gagal dimuat (link rusak), otomatis geser ke
-// lapisan berikutnya lewat onerror, jadi tidak pernah ada gambar pecah.
 function extractAutoThumb(embedUrl) {
   if (!embedUrl) return null;
   const yt = embedUrl.match(/youtu\.be\/([a-zA-Z0-9_-]+)/)
@@ -66,7 +78,7 @@ function extractAutoThumb(embedUrl) {
 
 function buildThumbChain(v) {
   const chain = [];
-  if (v.thumbnail) chain.push(v.thumbnail);
+  if (v.thumbnail) chain.push(normalizeThumbLink(v.thumbnail));
   const auto = extractAutoThumb(v.embedUrl);
   if (auto) chain.push(auto);
   if (siteSettings.defaultThumbnail) chain.push(siteSettings.defaultThumbnail);
@@ -74,8 +86,6 @@ function buildThumbChain(v) {
   return chain;
 }
 
-// Dipanggil dari onerror inline di <img>, digantung ke window supaya bisa
-// diakses dari atribut HTML inline.
 window.__nokthubThumbFallback = function (imgEl, videoId) {
   const v = allPublishedVideos.find(x => x.id === videoId);
   if (!v) { imgEl.src = PLACEHOLDER_THUMB; return; }
@@ -112,7 +122,6 @@ function escapeHtml(s=""){
   return s.replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 }
 
-// ---------- Render sections ----------
 function renderLatest() {
   const el = document.getElementById("latest-grid");
   if (!el) return;
@@ -162,7 +171,6 @@ function emptyState(msg){
   return `<p style="color:var(--text-muted);padding:20px 0">${msg}</p>`;
 }
 
-// ---------- Hero slider (video terbaru) ----------
 function renderHero() {
   const wrap = document.getElementById("hero-slider");
   const dotsWrap = document.getElementById("hero-dots");
@@ -174,7 +182,7 @@ function renderHero() {
 
   wrap.innerHTML = slides.map((v,i) => `
     <a class="hero-slide ${i===0?'active':''}" data-i="${i}" href="watch.html?id=${v.id}"
-       style="background-image:url('${v.thumbnail || buildThumbChain(v)[0]}');transition:opacity .6s ease, transform .6s ease;">
+       style="background-image:url('${buildThumbChain(v)[0]}');transition:opacity .6s ease, transform .6s ease;">
       <div class="hero-info">
         <div class="eyebrow">Video Terbaru</div>
         <h1>${escapeHtml(v.title)}</h1>
@@ -250,7 +258,6 @@ function renderHero() {
   });
 }
 
-// ---------- Realtime search (title, tag, category, description) ----------
 async function logSearch(term, uid=null){
   try{
     await addDoc(collection(db,"search_logs"), { term, uid, searchedAt: serverTimestamp() });
@@ -278,7 +285,7 @@ function initSearch() {
 
       resultsBox.innerHTML = matches.map(v => `
         <a class="search-result-item" href="watch.html?id=${v.id}">
-          <img src="${v.thumbnail}" alt="">
+          <img src="${buildThumbChain(v)[0]}" alt="">
           <div>
             <div style="font-size:.85rem">${escapeHtml(v.title)}</div>
             <div style="font-size:.72rem;color:var(--text-muted)">${escapeHtml(v.category||'')}</div>
@@ -302,7 +309,6 @@ function initSearch() {
   });
 }
 
-// ---------- Init ----------
 document.addEventListener("DOMContentLoaded", async () => {
   await loadSiteSettings();
   initSearch();
