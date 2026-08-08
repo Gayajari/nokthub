@@ -28,6 +28,7 @@
       <span class="site-brand-text">NOKT HUB</span> <span class="dot"></span>
     </a>
     <a href="index.html" class="nav-btn">Home</a>
+    <a id="reset-page-btn" href="tag.html" class="nav-btn">⟵ Tag Ini</a>
     <div class="search-wrap">
       <input id="search-input" class="search-input" type="text" placeholder="Cari judul, tag, kategori...">
       <div id="search-results" class="search-results"></div>
@@ -44,7 +45,19 @@
 </main>
 
 <footer class="site-footer">
-  <div class="container"><span class="site-name-inline">NOKT HUB</span> — © 2026</div>
+  <div class="container footer-grid">
+    <div>
+      <a href="index.html" class="brand site-brand-text" style="margin-bottom:8px;display:inline-block;text-decoration:none">NOKT HUB</a>
+      <p>© 2026 <span class="site-name-inline">NOKT HUB</span>. Semua konten milik pemilik hak cipta masing-masing.</p>
+    </div>
+    <div class="footer-links">
+      <a href="contact.html">Kontak</a>
+      <a href="privacy-policy.html">Privacy Policy</a>
+      <a href="terms.html">Terms</a>
+      <a href="dmca.html">DMCA</a>
+      <a href="disclaimer.html">Disclaimer</a>
+    </div>
+  </div>
 </footer>
 
 <script type="module" src="js/firebase-config.js"></script>
@@ -53,7 +66,14 @@
 import { initTagListing } from "./js/listing.js";
 import "./js/app.js";
 const params = new URLSearchParams(window.location.search);
-initTagListing(params.get('t') || '');
+const currentTag = params.get('t') || '';
+initTagListing(currentTag);
+
+// Tombol "⟵ Tag Ini": reset ke halaman 1 dari tag yang sama (tidak balik ke Home)
+const resetBtn = document.getElementById('reset-page-btn');
+if (resetBtn && currentTag) {
+  resetBtn.href = 'tag.html?t=' + encodeURIComponent(currentTag);
+}
 </script>
 </body>
 </html>
