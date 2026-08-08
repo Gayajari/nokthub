@@ -38,9 +38,10 @@ function applySiteSettings() {
   if (s.siteName && titleEl) {
     document.title = document.title.replace(/NOKT HUB/i, s.siteName);
   }
-  if (s.siteName) {
-    document.querySelectorAll(".site-brand-text").forEach(el => { el.textContent = s.siteName; });
-  }
+  document.querySelectorAll(".site-brand-text").forEach(el => {
+    if (s.siteName) el.textContent = s.siteName;
+    el.style.visibility = "visible"; // reveal lagi meski cache sempat sembunyikan teks
+  });
 
   const logoImg = document.getElementById("site-logo-img");
   if (logoImg) logoImg.src = s.logoUrl || DEFAULT_LOGO_URL;
