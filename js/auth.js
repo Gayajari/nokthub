@@ -56,23 +56,66 @@ export function watchAuthState(callback) {
 }
 
 // ---------- Header UI binding (dipakai di semua halaman) ----------
+
+// Render tombol Login / Profil ke DOM berdasarkan sebuah "state" ringkas:
+// { loggedIn: true/false, displayName, photoURL }. Dipakai baik oleh versi
+// cache (instan, dari localStorage) maupun versi asli (dari Firebase).
+function renderAuthUI(loginBtn, profileBtn, state) {
+  if (state.loggedIn) {
+    if (loginBtn) loginBtn.style.display = "none";
+    if (profileBtn) {
+      profileBtn.style.display = "flex";
+      profileBtn.innerHTML = `
+        <img src="${state.photoURL || 'https://via.placeholder.com/32'}" alt="">
+        <span>${state.displayName || 'Profil'}</span>`;
+    }
+  } else {
+    if (loginBtn) loginBtn.style.display = "inline-block";
+    if (profileBtn) profileBtn.style.display = "none";
+  }
+  // Munculkan lagi elemen yang sempat disembunyikan lewat script anti-flash
+  // di <head> (lihat komentar "Anti-flash" di tiap file HTML).
+  if (loginBtn) loginBtn.style.visibility = "visible";
+  if (profileBtn) profileBtn.style.visibility = "visible";
+}
+
+// ---------- Terapkan status login dari cache dulu (instan) ----------
+// Sama seperti mekanisme nama/warna situs: supaya pengunjung yang sudah
+// pernah buka situs ini sebelumnya langsung lihat tampilan Login/Profil
+// yang (kemungkinan besar) benar, tanpa nunggu Firebase selesai memeriksa
+// status login — yang biasanya makan waktu sepersekian detik dan bikin
+// tombol "Login" sempat kelihatan kedip sebelum berubah jadi profil
+// (atau sebaliknya).
+function applyCachedAuthState() {
+  const loginBtn = document.getElementById("login-btn");
+  const profileBtn = document.getElementById("profile-btn");
+  let cached = null;
+  try {
+    cached = JSON.parse(localStorage.getItem("nokt_auth_cache") || "null");
+  } catch (e) { cached = null; }
+
+  if (!cached) return; // belum ada cache (kunjungan pertama) -> biarkan tampilan default HTML apa adanya
+  renderAuthUI(loginBtn, profileBtn, cached);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const loginBtn = document.getElementById("login-btn");
   const profileBtn = document.getElementById("profile-btn");
 
+  // 1) Terapkan dulu dari cache -> instan, minim kedip.
+  applyCachedAuthState();
+
+  // 2) Baru dengarkan status asli dari Firebase. Begitu didapat, render
+  //    ulang (mengonfirmasi/mengoreksi hasil cache) dan simpan ke cache
+  //    lagi untuk kunjungan berikutnya.
   watchAuthState((user) => {
-    if (user) {
-      if (loginBtn) loginBtn.style.display = "none";
-      if (profileBtn) {
-        profileBtn.style.display = "flex";
-        profileBtn.innerHTML = `
-          <img src="${user.photoURL || 'https://via.placeholder.com/32'}" alt="">
-          <span>${user.displayName || 'Profil'}</span>`;
-      }
-    } else {
-      if (loginBtn) loginBtn.style.display = "inline-block";
-      if (profileBtn) profileBtn.style.display = "none";
-    }
+    const state = user
+      ? { loggedIn: true, displayName: user.displayName || "", photoURL: user.photoURL || "" }
+      : { loggedIn: false };
+
+    try { localStorage.setItem("nokt_auth_cache", JSON.stringify(state)); } catch (e) {}
+
+    renderAuthUI(loginBtn, profileBtn, state);
   });
 
   if (loginBtn) loginBtn.addEventListener("click", () => {
