@@ -4,7 +4,7 @@
 import {
   db, auth, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc,
   deleteDoc, query, where, orderBy, limit, increment, serverTimestamp,
-  onAuthStateChanged, onSnapshot
+  onAuthStateChanged, onSnapshot, writeBatch
 } from "./firebase-config.js";
 import { renderPlayer, trackResumePosition } from "./player.js";
 import { escapeHtml, renderVideoCard } from "./app.js";
@@ -27,7 +27,7 @@ onAuthStateChanged(auth, (u) => {
   currentUser = u;
   checkLikeState();
   updateCommentBoxState();
-  loadUserReactions(); // sinkronkan status like/dislike komentar sesuai user yang login
+  loadUserReactions(); // sinkronkan status like/dislike komentar & reply sesuai user yang login
 });
 
 // Aktifkan/nonaktifkan kotak komentar sesuai status login.
@@ -100,11 +100,6 @@ function renderVideoInfo() {
 
   const catEl = document.getElementById("video-category");
   if (v.category) {
-    // Kategori tetap ditampilkan (fitur navigasi/filter yang beneran
-    // berguna) TAPI dibuat gak menonjol -- lebih kecil & redup, jadi
-    // ngasih info tanpa jadi elemen yang paling mencolok di halaman.
-    // Placeholder "-" tetap dibuang, cuma dirender kalau videonya
-    // beneran punya kategori.
     catEl.innerHTML = `<a class="cat-chip" href="category.html?c=${encodeURIComponent(v.category)}" style="font-size:.75rem;opacity:.7;padding:3px 10px">${escapeHtml(v.category)}</a>`;
     catEl.style.display = "";
   } else {
@@ -272,12 +267,14 @@ async function loadRelated() {
 
 // ---------- Comments ----------
 let allComments = [];
-let userReactions = {};
+let userReactions = {};        // { [commentOrReplyId]: "like" | "dislike" }
 let commentSortOrder = "desc";
 let commentDisplayLimit = 8;
 const COMMENT_BATCH_SIZE = 8;
 let unsubscribeComments = null;
 const pendingReactions = new Set();
+let activeReplyBox = null;         // id komentar/reply yang lagi dibalas (kotak reply terbuka)
+const expandedReplies = new Set(); // id komentar top-level yang balasannya lagi ditampilkan
 
 function listenComments() {
   if (unsubscribeComments) unsubscribeComments();
@@ -342,42 +339,99 @@ document.querySelectorAll("#sort-newest, #sort-oldest").forEach(btn => {
 });
 document.getElementById("sort-newest").classList.add("active");
 
+// Diefisienkan: sebelumnya 1 getDoc per komentar (bisa puluhan read tiap buka
+// halaman). Sekarang cukup SATU query terhadap comment_reactions milik user
+// ini untuk video ini (reaction doc kini menyimpan field videoId supaya bisa
+// difilter langsung tanpa perlu tahu daftar commentId dulu).
 async function loadUserReactions() {
   userReactions = {};
-  if (!currentUser || !allComments.length) return;
+  if (!currentUser) { renderCommentsList(); return; }
   try {
-    await Promise.all(allComments.map(async (c) => {
-      const snap = await getDoc(doc(db, "comment_reactions", `${c.id}_${currentUser.uid}`));
-      if (snap.exists()) userReactions[c.id] = snap.data().type;
-    }));
+    const q = query(
+      collection(db, "comment_reactions"),
+      where("uid", "==", currentUser.uid),
+      where("videoId", "==", videoId)
+    );
+    const snap = await getDocs(q);
+    snap.forEach(d => { userReactions[d.data().commentId] = d.data().type; });
   } catch (err) {
     console.error("Gagal memuat reaksi komentar:", err.message);
   }
   renderCommentsList();
 }
 
+function formatCommentDate(ts) {
+  return ts?.toDate ? ts.toDate().toLocaleDateString('id-ID') : "";
+}
+
+function renderReactionRow(item, myReaction) {
+  const likeActive = myReaction === "like" ? "is-active" : "";
+  const dislikeActive = myReaction === "dislike" ? "is-active" : "";
+  return `
+    <span class="comment-react ${likeActive}" data-react="like" data-cid="${item.id}">${ICON_THUMB_UP} ${item.likeCount||0}</span>
+    <span class="comment-react ${dislikeActive}" data-react="dislike" data-cid="${item.id}">${ICON_THUMB_DOWN} ${item.dislikeCount||0}</span>`;
+}
+
+// Kotak balas ini SELALU nempel di parent komentar top-level (parentId),
+// walau yang dibalas adalah sebuah reply -- sesuai aturan "reply cuma 1
+// tingkat". mentionName cuma dipakai buat isi awal teks "@Nama ".
+function renderReplyBox(parentId, mentionName) {
+  if (activeReplyBox !== parentId) return "";
+  const mention = mentionName ? `@${escapeHtml(mentionName)} ` : "";
+  return `
+    <div class="reply-box" style="margin-top:8px">
+      <textarea class="reply-input" data-parent="${parentId}"
+        style="width:100%;min-height:36px;resize:vertical;background:var(--surface,#151517);color:inherit;border:1px solid var(--border,#2a2a2d);border-radius:6px;padding:6px 8px;font-size:.8rem"
+        placeholder="Tulis balasan...">${mention}</textarea>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="btn btn-send-reply" data-parent="${parentId}" style="font-size:.75rem;padding:4px 12px">Kirim</button>
+        <button class="share-btn btn-cancel-reply" data-parent="${parentId}" style="font-size:.75rem;padding:4px 12px">Batal</button>
+      </div>
+    </div>`;
+}
+
 function renderComment(c, all) {
   const replies = all.filter(r => r.parentId === c.id);
   const isOwner = currentUser && currentUser.uid === c.uid;
   const myReaction = userReactions[c.id];
-  const likeActive = myReaction === "like" ? "is-active" : "";
-  const dislikeActive = myReaction === "dislike" ? "is-active" : "";
+  const isExpanded = expandedReplies.has(c.id);
+
   return `
     <div class="comment-item">
       <img src="${c.userPhoto || 'https://via.placeholder.com/34'}" alt="">
       <div style="flex:1">
-        <div style="font-size:.85rem;font-weight:600">${escapeHtml(c.userName || 'User')}</div>
+        <div style="font-size:.85rem;font-weight:600">${escapeHtml(c.userName || 'User')}
+          <span style="font-weight:400;color:var(--text-muted);font-size:.72rem">· ${formatCommentDate(c.createdAt)}</span>
+        </div>
         <div style="font-size:.85rem;margin:4px 0">${escapeHtml(c.text)}</div>
-        <div style="display:flex;gap:14px;font-size:.72rem;color:var(--text-muted)">
-          <span class="comment-react ${likeActive}" data-react="like" data-cid="${c.id}">${ICON_THUMB_UP} ${c.likeCount||0}</span>
-          <span class="comment-react ${dislikeActive}" data-react="dislike" data-cid="${c.id}">${ICON_THUMB_DOWN} ${c.dislikeCount||0}</span>
+        <div style="display:flex;gap:14px;font-size:.72rem;color:var(--text-muted);align-items:center">
+          ${renderReactionRow(c, myReaction)}
+          <span style="cursor:pointer" data-reply="${c.id}" data-reply-name="${escapeHtml(c.userName||'User')}">Balas</span>
           ${isOwner ? `<span style="cursor:pointer" data-del="${c.id}">Hapus</span>` : ""}
         </div>
-        ${replies.map(r => `
+        ${renderReplyBox(c.id, c.userName)}
+        ${replies.length ? `
+          <div style="margin-top:6px">
+            <span class="btn-toggle-replies" data-toggle-replies="${c.id}" style="font-size:.72rem;color:var(--accent,#ff7a00);cursor:pointer;font-weight:600">
+              ${isExpanded ? "Sembunyikan balasan" : `Lihat ${replies.length} balasan`}
+            </span>
+          </div>` : ""}
+        ${isExpanded ? replies.map(r => {
+          const rReaction = userReactions[r.id];
+          const rIsOwner = currentUser && currentUser.uid === r.uid;
+          return `
           <div style="margin-top:8px;padding-left:14px;border-left:2px solid var(--border)">
-            <div style="font-size:.8rem;font-weight:600">${escapeHtml(r.userName)}</div>
+            <div style="font-size:.8rem;font-weight:600">${escapeHtml(r.userName)}
+              <span style="font-weight:400;color:var(--text-muted);font-size:.7rem">· ${formatCommentDate(r.createdAt)}</span>
+            </div>
             <div style="font-size:.8rem">${escapeHtml(r.text)}</div>
-          </div>`).join("")}
+            <div style="display:flex;gap:12px;font-size:.7rem;color:var(--text-muted);margin-top:4px;align-items:center">
+              ${renderReactionRow(r, rReaction)}
+              <span style="cursor:pointer" data-reply="${c.id}" data-reply-name="${escapeHtml(r.userName||'User')}">Balas</span>
+              ${rIsOwner ? `<span style="cursor:pointer" data-del="${r.id}">Hapus</span>` : ""}
+            </div>
+          </div>`;
+        }).join("") : ""}
       </div>
     </div>`;
 }
@@ -428,14 +482,71 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
   }
 });
 
-// Satu listener untuk hapus komentar DAN reaksi like/dislike
+// Satu listener untuk: hapus komentar/reply, buka/tutup kotak balas, kirim
+// balasan, expand/collapse daftar balasan, dan reaksi like/dislike
+// (komentar maupun reply -- keduanya sama-sama dokumen di koleksi
+// "comments" jadi dipakaikan logika yang sama persis).
 document.getElementById("comment-list").addEventListener("click", async (e) => {
+  // --- Hapus komentar / reply ---
   const delId = e.target.dataset.del;
   if (delId) {
     await deleteDoc(doc(db, "comments", delId));
     return;
   }
 
+  // --- Buka/tutup kotak balas ---
+  const replyId = e.target.dataset.reply;
+  if (replyId) {
+    if (!currentUser) { window.location.href = "login.html"; return; }
+    activeReplyBox = activeReplyBox === replyId ? null : replyId;
+    renderCommentsList();
+    return;
+  }
+
+  // --- Batal balas ---
+  if (e.target.classList.contains("btn-cancel-reply")) {
+    activeReplyBox = null;
+    renderCommentsList();
+    return;
+  }
+
+  // --- Tampilkan / sembunyikan daftar balasan ---
+  const toggleId = e.target.dataset.toggleReplies;
+  if (toggleId) {
+    if (expandedReplies.has(toggleId)) expandedReplies.delete(toggleId);
+    else expandedReplies.add(toggleId);
+    renderCommentsList();
+    return;
+  }
+
+  // --- Kirim balasan ---
+  if (e.target.classList.contains("btn-send-reply")) {
+    if (!currentUser) { window.location.href = "login.html"; return; }
+    const parentId = e.target.dataset.parent;
+    const box = document.querySelector(`.reply-input[data-parent="${parentId}"]`);
+    const text = box ? box.value.trim() : "";
+    if (!text) return;
+    e.target.disabled = true;
+    try {
+      await addDoc(collection(db, "comments"), {
+        videoId, uid: currentUser.uid,
+        userName: currentUser.displayName || "User",
+        userPhoto: currentUser.photoURL || "",
+        text, parentId, likeCount: 0, dislikeCount: 0,
+        createdAt: serverTimestamp()
+      });
+      activeReplyBox = null;
+      expandedReplies.add(parentId); // biar balasan baru langsung kelihatan
+    } catch (err) {
+      console.error("Gagal mengirim balasan:", err.message);
+      alert("Balasan gagal terkirim. Coba lagi.");
+    } finally {
+      e.target.disabled = false;
+    }
+    return;
+  }
+
+  // --- Reaksi like/dislike (komentar maupun reply) ---
   const reactEl = e.target.closest("[data-react]");
   if (reactEl) {
     if (!currentUser) { window.location.href = "login.html"; return; }
@@ -446,18 +557,28 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
     pendingReactions.add(cid);
 
     const reactRef = doc(db, "comment_reactions", `${cid}_${currentUser.uid}`);
+    const commentRef = doc(db, "comments", cid);
     const target = allComments.find(c => c.id === cid);
     const prevType = userReactions[cid];
 
     try {
+      // writeBatch dipakai supaya perubahan dokumen reaksi + counter like/
+      // dislike pada komentar tercatat sebagai SATU operasi atomik (bukan
+      // dua request terpisah yang bisa "nyangkut" separuh jalan), sekaligus
+      // tetap pakai increment() server-side biar aman dari race condition
+      // saat banyak user bereaksi hampir bersamaan.
+      const batch = writeBatch(db);
+
       if (prevType === type) {
-        if (target) target[type === "like" ? "likeCount" : "dislikeCount"] =
-          Math.max((target[type === "like" ? "likeCount" : "dislikeCount"] || 1) - 1, 0);
+        // klik ulang tombol yang sama -> batalkan reaksi
+        const field = type === "like" ? "likeCount" : "dislikeCount";
+        if (target) target[field] = Math.max((target[field] || 1) - 1, 0);
         delete userReactions[cid];
-        renderCommentsList();
-        await deleteDoc(reactRef);
+        batch.delete(reactRef);
+        batch.update(commentRef, { [field]: increment(-1) });
 
       } else if (prevType) {
+        // pindah dari like ke dislike (atau sebaliknya)
         const oldField = prevType === "like" ? "likeCount" : "dislikeCount";
         const newField = type === "like" ? "likeCount" : "dislikeCount";
         if (target) {
@@ -465,18 +586,20 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
           target[newField] = (target[newField] || 0) + 1;
         }
         userReactions[cid] = type;
-        renderCommentsList();
-        await setDoc(reactRef, { commentId: cid, uid: currentUser.uid, type });
-        await updateDoc(doc(db, "comments", cid), { [oldField]: increment(-1), [newField]: increment(1) });
+        batch.set(reactRef, { commentId: cid, uid: currentUser.uid, type, videoId });
+        batch.update(commentRef, { [oldField]: increment(-1), [newField]: increment(1) });
 
       } else {
+        // belum pernah bereaksi -> reaksi baru
         const field = type === "like" ? "likeCount" : "dislikeCount";
         if (target) target[field] = (target[field] || 0) + 1;
         userReactions[cid] = type;
-        renderCommentsList();
-        await setDoc(reactRef, { commentId: cid, uid: currentUser.uid, type });
-        await updateDoc(doc(db, "comments", cid), { [field]: increment(1) });
+        batch.set(reactRef, { commentId: cid, uid: currentUser.uid, type, videoId });
+        batch.update(commentRef, { [field]: increment(1) });
       }
+
+      renderCommentsList(); // update tampilan optimis dulu
+      await batch.commit();
     } catch (err) {
       console.error("Gagal menyimpan reaksi komentar:", err.message);
       if (prevType) userReactions[cid] = prevType; else delete userReactions[cid];
@@ -511,12 +634,6 @@ function setupCommentFocusZoom() {
   let placeholder = null; // jaga tinggi ruang aslinya biar konten di bawah gak "loncat"
   let rafId = null; // buat nunda perhitungan posisi sampai browser selesai 1 frame animasi
 
-  // Perkiraan tinggi keyboard = selisih antara layout viewport (window.innerHeight)
-  // dan visual viewport (mengecil saat keyboard muncul). Kalau browser sudah
-  // otomatis mengecilkan layout viewport pas keyboard buka (perilaku default),
-  // selisihnya kecil/nol -> "bottom: 0" saja sudah pas di atas keyboard.
-  // Toleransi 24px dipakai biar selisih receh (rounding, address bar animasi)
-  // gak bikin nilai bolak-balik / flicker.
   function getKeyboardOffset() {
     const vv = window.visualViewport;
     if (!vv) return 0;
@@ -524,10 +641,6 @@ function setupCommentFocusZoom() {
     return gap > 24 ? gap : 0;
   }
 
-  // Ditunda ke requestAnimationFrame supaya perhitungan dilakukan SETELAH
-  // browser selesai reflow (bukan di tengah-tengah animasi buka/tutup
-  // keyboard) -- ini yang benerin "kadang di atas kadang di bawah" karena
-  // sebelumnya nilai transisi yang belum stabil ikut kepakai.
   function positionBar() {
     if (!isActive) return;
     if (rafId) cancelAnimationFrame(rafId);
@@ -538,15 +651,9 @@ function setupCommentFocusZoom() {
     });
   }
 
-  // Semua properti dipaksa pakai !important lewat setProperty -- supaya
-  // kolom komentar SELALU jadi layer fixed yang stabil (persis kayak bar
-  // nama web/logo yang "tetep disitu"), gak bisa keganggu/dikalahkan CSS
-  // lain yang mungkin ada aturan bentrok soal .comment-box atau .is-focused.
   function activate() {
     if (input.disabled || isActive) return;
 
-    // Simpan tempat asli box pakai elemen placeholder kosong seukuran box,
-    // biar layout halaman gak "loncat" pas box diangkat jadi fixed.
     const rect = box.getBoundingClientRect();
     placeholder = document.createElement("div");
     placeholder.style.height = rect.height + "px";
@@ -566,9 +673,6 @@ function setupCommentFocusZoom() {
     box.classList.add("is-focused");
     isActive = true;
     positionBar();
-
-    // Biarkan browser scroll textarea yang fokus ke area kelihatan secara
-    // natural -- gak perlu dipaksa scrollTo manual seperti sebelumnya.
   }
 
   function deactivate() {
@@ -590,8 +694,6 @@ function setupCommentFocusZoom() {
   input.addEventListener("focus", activate);
   input.addEventListener("blur", deactivate);
 
-  // Cegah tap di tombol "Kirim" bikin textarea blur duluan sebelum klik
-  // sempat diproses (ini akar masalah "harus tap 2x baru kekirim").
   btnSend.addEventListener("mousedown", (e) => {
     e.preventDefault();
   });
@@ -610,17 +712,6 @@ function setupCommentFocusZoom() {
 commentZoomController = setupCommentFocusZoom();
 
 // ---------- Layout ringkas: textarea auto-resize + daftar komentar dibatasi tinggi ----------
-// Sebelumnya textarea komentar tingginya statis besar (walau isinya cuma 1
-// baris) dan daftar komentar gak dibatasi -> makin banyak komentar makin
-// panjang halaman, "Video Terkait" jadi kedorong jauh ke bawah. Dua hal ini
-// dipaksa lewat !important biar gak kekalahan CSS default di file lain:
-// 1. Textarea mulai dari tinggi ringkas (~2 baris), otomatis tambah tinggi
-//    ngikutin isi teksnya (mirip kotak chat WA/IG), maksimal sebelum discroll
-//    sendiri di dalam textarea-nya.
-// 2. Daftar komentar (#comment-list) dikasih tinggi maksimum + scroll sendiri
-//    di dalamnya -> berapa pun banyaknya komentar yang ke-load, tinggi
-//    section-nya gak nambah terus, jadi konten setelahnya (Video Terkait)
-//    tetap gampang dijangkau tanpa scroll kepanjangan.
 const COMMENT_TEXTAREA_MIN_H = 44;   // ~2 baris
 const COMMENT_TEXTAREA_MAX_H = 120;  // ~5 baris sebelum scroll sendiri
 const COMMENT_LIST_MAX_H = "min(50vh, 420px)";
@@ -655,11 +746,6 @@ function autoGrowTextarea(el) {
 })();
 
 // ---------- Deskripsi ringkas dengan toggle "Selengkapnya" ----------
-// Sebelumnya deskripsi ditampilkan penuh apa adanya -> kalau panjang,
-// makan banyak tempat sebelum user sempat lihat Video Terkait. Sekarang
-// dipotong 2 baris by default (mirip caption IG/YouTube), ada tombol kecil
-// "Selengkapnya" buat yang mau baca penuh -- jadi deskripsi jadi elemen
-// kecil/gak dominan, bukan blok besar yang mendorong konten lain ke bawah.
 function setupCollapsibleDescription(descEl, fullText) {
   descEl.textContent = fullText;
   descEl.style.setProperty("display", "-webkit-box", "important");
@@ -670,8 +756,6 @@ function setupCollapsibleDescription(descEl, fullText) {
   const old = document.getElementById("btn-toggle-desc");
   if (old) old.remove();
 
-  // Cuma perlu tombol toggle kalau teksnya emang panjang (kira-kira gak
-  // muat di 2 baris) -- deskripsi pendek langsung tampil penuh tanpa tombol.
   if (fullText.length <= 90) return;
 
   const toggle = document.createElement("span");
@@ -697,25 +781,11 @@ function setupCollapsibleDescription(descEl, fullText) {
 }
 
 // ---------- Section Komentar: tertutup by default ----------
-// Poin dari user: yang penting itu VIDEO dan VIDEO TERKAIT (biar orang
-// lanjut nonton), bukan komentar. Jadi begitu halaman dibuka, isi komentar
-// (kotak tulis, tombol kirim, sort, daftar komentar) disembunyikan dulu.
-//
-// REVISI dari versi sebelumnya: target klik buat buka/tutup DIPINDAH dari
-// strip kecil "X komentar" (yang posisinya di tengah, di antara tombol
-// Kirim & daftar komentar -- aneh & gak nyaman dijangkau) ke JUDUL
-// "Komentar" itu sendiri di paling atas section. Ini pola accordion yang
-// lebih umum & pola muscle-memory alami: tap judulnya buat buka/tutup,
-// bukan cari strip kecil di tengah konten. Baris "X komentar" tetap
-// kelihatan sebagai info (gak lagi jadi tombol), biar user tetap tau
-// jumlah komentar tanpa harus buka dulu.
 function findCommentHeading() {
   const headingTags = document.querySelectorAll("h1,h2,h3,h4,h5,h6");
   for (const el of headingTags) {
     if (el.textContent.trim() === "Komentar") return el;
   }
-  // fallback: cari elemen leaf (gak punya anak elemen lain) yang teksnya
-  // persis "Komentar", buat jaga-jaga kalau judulnya bukan tag heading.
   const all = document.querySelectorAll("body *");
   for (const el of all) {
     if (el.children.length === 0 && el.textContent.trim() === "Komentar") return el;
