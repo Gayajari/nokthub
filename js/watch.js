@@ -275,6 +275,8 @@ let unsubscribeComments = null;
 const pendingReactions = new Set();
 let activeReplyBox = null;         // id komentar/reply yang lagi dibalas (kotak reply terbuka)
 const expandedReplies = new Set(); // id komentar top-level yang balasannya lagi ditampilkan
+const replyDisplayLimits = {};     // { [commentId]: berapa reply yang ditampilkan } -- biar reply banyak gak sekaligus dirender semua
+const REPLY_BATCH_SIZE = 5;
 
 function listenComments() {
   if (unsubscribeComments) unsubscribeComments();
@@ -301,7 +303,7 @@ function renderCommentsList() {
   const visible = topLevel.slice(0, commentDisplayLimit);
 
   list.innerHTML = visible.map(c => renderComment(c, allComments)).join("")
-    || `<p style="color:var(--text-muted)">Belum ada komentar. Jadilah yang pertama!</p>`;
+    || `<p style="color:var(--text-muted)">Belum ada komentar.<br>Tulis komentar pertama...</p>`;
 
   if (topLevel.length > commentDisplayLimit) {
     const sisa = topLevel.length - commentDisplayLimit;
@@ -395,16 +397,24 @@ function renderComment(c, all) {
   const isOwner = currentUser && currentUser.uid === c.uid;
   const myReaction = userReactions[c.id];
   const isExpanded = expandedReplies.has(c.id);
+  const replyLimit = replyDisplayLimits[c.id] || REPLY_BATCH_SIZE;
+  const visibleReplies = replies.slice(0, replyLimit);
+  const sisaReplies = replies.length - visibleReplies.length;
+
+  // word-break/overflow-wrap: jaga nama/isi komentar yang panjang (link
+  // tanpa spasi, username panjang, dll) supaya tetap membungkus ke baris
+  // berikutnya, gak bikin halaman scroll ke samping di HP.
+  const wrapStyle = "overflow-wrap:anywhere;word-break:break-word";
 
   return `
-    <div class="comment-item">
-      <img src="${c.userPhoto || 'https://via.placeholder.com/34'}" alt="">
-      <div style="flex:1">
-        <div style="font-size:.85rem;font-weight:600">${escapeHtml(c.userName || 'User')}
+    <div class="comment-item" style="max-width:100%">
+      <img src="${c.userPhoto || 'https://via.placeholder.com/34'}" alt="" style="flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.85rem;font-weight:600;${wrapStyle}">${escapeHtml(c.userName || 'User')}
           <span style="font-weight:400;color:var(--text-muted);font-size:.72rem">· ${formatCommentDate(c.createdAt)}</span>
         </div>
-        <div style="font-size:.85rem;margin:4px 0">${escapeHtml(c.text)}</div>
-        <div style="display:flex;gap:14px;font-size:.72rem;color:var(--text-muted);align-items:center">
+        <div style="font-size:.85rem;margin:4px 0;${wrapStyle}">${escapeHtml(c.text)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:.72rem;color:var(--text-muted);align-items:center">
           ${renderReactionRow(c, myReaction)}
           <span style="cursor:pointer" data-reply="${c.id}" data-reply-name="${escapeHtml(c.userName||'User')}">Balas</span>
           ${isOwner ? `<span style="cursor:pointer" data-del="${c.id}">Hapus</span>` : ""}
@@ -416,22 +426,27 @@ function renderComment(c, all) {
               ${isExpanded ? "Sembunyikan balasan" : `Lihat ${replies.length} balasan`}
             </span>
           </div>` : ""}
-        ${isExpanded ? replies.map(r => {
+        ${isExpanded ? visibleReplies.map(r => {
           const rReaction = userReactions[r.id];
           const rIsOwner = currentUser && currentUser.uid === r.uid;
           return `
-          <div style="margin-top:8px;padding-left:14px;border-left:2px solid var(--border)">
-            <div style="font-size:.8rem;font-weight:600">${escapeHtml(r.userName)}
+          <div style="margin-top:8px;padding-left:14px;border-left:2px solid var(--border);max-width:100%">
+            <div style="font-size:.8rem;font-weight:600;${wrapStyle}">${escapeHtml(r.userName)}
               <span style="font-weight:400;color:var(--text-muted);font-size:.7rem">· ${formatCommentDate(r.createdAt)}</span>
             </div>
-            <div style="font-size:.8rem">${escapeHtml(r.text)}</div>
-            <div style="display:flex;gap:12px;font-size:.7rem;color:var(--text-muted);margin-top:4px;align-items:center">
+            <div style="font-size:.8rem;${wrapStyle}">${escapeHtml(r.text)}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:.7rem;color:var(--text-muted);margin-top:4px;align-items:center">
               ${renderReactionRow(r, rReaction)}
               <span style="cursor:pointer" data-reply="${c.id}" data-reply-name="${escapeHtml(r.userName||'User')}">Balas</span>
               ${rIsOwner ? `<span style="cursor:pointer" data-del="${r.id}">Hapus</span>` : ""}
             </div>
           </div>`;
         }).join("") : ""}
+        ${isExpanded && sisaReplies > 0 ? `
+          <span class="btn-load-more-replies" data-more-replies="${c.id}"
+            style="display:inline-block;margin-top:6px;font-size:.72rem;color:var(--text-muted);cursor:pointer;text-decoration:underline">
+            Lihat balasan lainnya (${sisaReplies})
+          </span>` : ""}
       </div>
     </div>`;
 }
@@ -513,8 +528,20 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
   // --- Tampilkan / sembunyikan daftar balasan ---
   const toggleId = e.target.dataset.toggleReplies;
   if (toggleId) {
-    if (expandedReplies.has(toggleId)) expandedReplies.delete(toggleId);
-    else expandedReplies.add(toggleId);
+    if (expandedReplies.has(toggleId)) {
+      expandedReplies.delete(toggleId);
+      delete replyDisplayLimits[toggleId]; // balik ke batas awal kalau ditutup lagi
+    } else {
+      expandedReplies.add(toggleId);
+    }
+    renderCommentsList();
+    return;
+  }
+
+  // --- Muat balasan lainnya (pagination reply) ---
+  const moreRepliesId = e.target.dataset.moreReplies;
+  if (moreRepliesId) {
+    replyDisplayLimits[moreRepliesId] = (replyDisplayLimits[moreRepliesId] || REPLY_BATCH_SIZE) + REPLY_BATCH_SIZE;
     renderCommentsList();
     return;
   }
