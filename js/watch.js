@@ -463,22 +463,35 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
 });
 
 // ---------- Efek zoom kolom komentar ----------
-// Saat textarea komentar difokus, kolom komentar "geser" jadi position:fixed
-// tepat di bawah player lalu zoom-in, sementara video-meta (judul, stats,
-// share, desc, tags) di-fade sebentar. Player video sendiri tidak disentuh,
-// jadi tetap kelihatan penuh. Balik normal saat klik di luar kolom komentar.
+// Saat textarea komentar difokus: video (player) dipin di atas (gak ikut
+// scroll), area di antara video & kolom komentar (judul, stats, share,
+// desc, tags, judul "Komentar") di-collapse total, dan kolom komentar
+// jadi position:fixed pas di bawah video sambil zoom-in. Balik normal
+// otomatis begitu textarea kehilangan fokus (termasuk pas klik "Kirim").
 (function setupCommentFocusZoom() {
   const box = document.querySelector(".comment-box");
   const input = document.getElementById("comment-input");
   const placeholder = document.getElementById("comment-box-placeholder");
+  const playerPlaceholder = document.getElementById("player-placeholder");
   const col = document.getElementById("watch-col");
   const player = document.getElementById("player-container");
-  if (!box || !input || !placeholder || !col || !player) return;
+  if (!box || !input || !placeholder || !playerPlaceholder || !col || !player) return;
 
-  function positionBox() {
+  function getHeaderHeight() {
+    const header = document.querySelector(".site-header");
+    return header ? header.getBoundingClientRect().height : 0;
+  }
+
+  function positionPinned() {
     const colRect = col.getBoundingClientRect();
-    const playerRect = player.getBoundingClientRect();
-    box.style.top = (playerRect.bottom + 12) + "px";
+    const headerH = getHeaderHeight();
+
+    player.style.top = headerH + "px";
+    player.style.left = colRect.left + "px";
+    player.style.width = colRect.width + "px";
+
+    const playerHeightNow = player.getBoundingClientRect().height;
+    box.style.top = (headerH + playerHeightNow + 10) + "px";
     box.style.left = colRect.left + "px";
     box.style.width = colRect.width + "px";
   }
@@ -487,37 +500,44 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
     if (input.disabled) return; // belum login -> gak perlu efek apa-apa
     if (box.classList.contains("is-focused")) return;
 
-    const boxRect = box.getBoundingClientRect();
-    placeholder.style.height = boxRect.height + "px";
+    const playerRectBefore = player.getBoundingClientRect();
+    const boxRectBefore = box.getBoundingClientRect();
+
+    // Jaga tinggi ruang aslinya, biar konten di bawah gak "loncat"
+    playerPlaceholder.style.height = playerRectBefore.height + "px";
+    playerPlaceholder.style.display = "block";
+    placeholder.style.height = boxRectBefore.height + "px";
     placeholder.style.display = "block";
 
-    positionBox();
-    box.classList.add("is-focused");
+    player.classList.add("is-pinned");
     document.body.classList.add("comment-focus-active");
+
+    positionPinned();
+    box.classList.add("is-focused");
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function deactivate() {
     if (!box.classList.contains("is-focused")) return;
     box.classList.remove("is-focused");
+    player.classList.remove("is-pinned");
     document.body.classList.remove("comment-focus-active");
-    box.style.top = "";
-    box.style.left = "";
-    box.style.width = "";
+
+    box.style.top = box.style.left = box.style.width = "";
+    player.style.top = player.style.left = player.style.width = "";
+
     placeholder.style.display = "none";
+    playerPlaceholder.style.display = "none";
   }
 
   input.addEventListener("focus", activate);
+  // blur otomatis kepicu juga saat klik tombol "Kirim" -> overlay langsung
+  // nutup dan user ketemu langsung komentar yang baru terkirim di daftar.
+  input.addEventListener("blur", deactivate);
 
-  // Klik di luar kolom komentar -> tutup lagi (kecuali klik di dalam kolom itu sendiri)
-  document.addEventListener("click", (e) => {
-    if (!box.classList.contains("is-focused")) return;
-    if (box.contains(e.target)) return;
-    deactivate();
-  });
-
-  // Reposisi ulang kalau ukuran layar berubah selagi overlay aktif
   window.addEventListener("resize", () => {
-    if (box.classList.contains("is-focused")) positionBox();
+    if (box.classList.contains("is-focused")) positionPinned();
   });
 })();
 
