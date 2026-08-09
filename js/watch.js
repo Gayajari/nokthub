@@ -80,7 +80,11 @@ function renderVideoInfo() {
   });
 
   document.getElementById("video-title").textContent = v.title;
-  document.getElementById("video-desc").textContent = v.description || "";
+  const descEl = document.getElementById("video-desc");
+  descEl.textContent = v.description || "";
+  // Sembunyikan total elemen deskripsi kalau videonya emang gak ada deskripsi,
+  // biar gak nyisain ruang kosong percuma di antara tombol share & tags.
+  descEl.style.display = v.description ? "" : "none";
   document.getElementById("stat-views").textContent = `${(v.viewCount||0).toLocaleString('id-ID')} view`;
   document.getElementById("stat-likes").textContent = `${(v.likeCount||0).toLocaleString('id-ID')} like`;
   document.getElementById("stat-date").textContent = v.uploadedAt?.toDate
@@ -388,6 +392,7 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
       createdAt: serverTimestamp()
     });
     input.value = "";
+    resetTextareaHeight(input); // balik ke tinggi ringkas, gak nyisa tinggi lama
     // Baru sekarang tutup mode zoom & keyboard, SETELAH komentar sukses
     // terkirim -> textarea di-blur manual, blur listener yang menutup
     // overlay jalan seperti biasa, dan user langsung lihat komentar
@@ -583,5 +588,50 @@ function setupCommentFocusZoom() {
 }
 
 commentZoomController = setupCommentFocusZoom();
+
+// ---------- Layout ringkas: textarea auto-resize + daftar komentar dibatasi tinggi ----------
+// Sebelumnya textarea komentar tingginya statis besar (walau isinya cuma 1
+// baris) dan daftar komentar gak dibatasi -> makin banyak komentar makin
+// panjang halaman, "Video Terkait" jadi kedorong jauh ke bawah. Dua hal ini
+// dipaksa lewat !important biar gak kekalahan CSS default di file lain:
+// 1. Textarea mulai dari tinggi ringkas (~2 baris), otomatis tambah tinggi
+//    ngikutin isi teksnya (mirip kotak chat WA/IG), maksimal sebelum discroll
+//    sendiri di dalam textarea-nya.
+// 2. Daftar komentar (#comment-list) dikasih tinggi maksimum + scroll sendiri
+//    di dalamnya -> berapa pun banyaknya komentar yang ke-load, tinggi
+//    section-nya gak nambah terus, jadi konten setelahnya (Video Terkait)
+//    tetap gampang dijangkau tanpa scroll kepanjangan.
+const COMMENT_TEXTAREA_MIN_H = 44;   // ~2 baris
+const COMMENT_TEXTAREA_MAX_H = 120;  // ~5 baris sebelum scroll sendiri
+const COMMENT_LIST_MAX_H = "min(50vh, 420px)";
+
+function resetTextareaHeight(el) {
+  el.style.setProperty("height", COMMENT_TEXTAREA_MIN_H + "px", "important");
+}
+
+function autoGrowTextarea(el) {
+  el.style.setProperty("height", "auto", "important");
+  const next = Math.min(Math.max(el.scrollHeight, COMMENT_TEXTAREA_MIN_H), COMMENT_TEXTAREA_MAX_H);
+  el.style.setProperty("height", next + "px", "important");
+}
+
+(function setupCompactCommentLayout() {
+  const input = document.getElementById("comment-input");
+  const list = document.getElementById("comment-list");
+
+  if (input) {
+    input.style.setProperty("min-height", COMMENT_TEXTAREA_MIN_H + "px", "important");
+    input.style.setProperty("max-height", COMMENT_TEXTAREA_MAX_H + "px", "important");
+    input.style.setProperty("overflow-y", "auto", "important");
+    input.style.setProperty("resize", "none", "important");
+    resetTextareaHeight(input);
+    input.addEventListener("input", () => autoGrowTextarea(input));
+  }
+
+  if (list) {
+    list.style.setProperty("max-height", COMMENT_LIST_MAX_H, "important");
+    list.style.setProperty("overflow-y", "auto", "important");
+  }
+})();
 
 loadVideo();
