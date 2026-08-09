@@ -410,18 +410,27 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
     try {
       const snap = await getDoc(reactRef);
       if (snap.exists()) return; // sudah pernah react sebelumnya
-      // Update status "aktif" duluan di layar (optimistic) — biar tombol langsung
-      // ke-lock begitu diklik, gak nunggu jaringan. Angka like/dislike-nya sendiri
-      // akan update otomatis begitu listener realtime nangkep perubahan dari server.
+
+      // Optimistic update: status "aktif" DAN angkanya langsung berubah di layar
+      // begitu diklik, gak nunggu balasan server — kayak nambah komentar baru yang
+      // langsung muncul. Nilai aslinya tetap disinkron ulang begitu listener
+      // realtime nangkep balasan dari Firestore (biasanya sama, buat jaga-jaga
+      // kalau ada user lain react bersamaan).
+      const field = type === "like" ? "likeCount" : "dislikeCount";
+      const target = allComments.find(c => c.id === cid);
+      if (target) target[field] = (target[field] || 0) + 1;
       userReactions[cid] = type;
       renderCommentsList();
+
       await setDoc(reactRef, { commentId: cid, uid: currentUser.uid, type });
-      await updateDoc(doc(db, "comments", cid), {
-        [type === "like" ? "likeCount" : "dislikeCount"]: increment(1)
-      });
+      await updateDoc(doc(db, "comments", cid), { [field]: increment(1) });
     } catch (err) {
       console.error("Gagal menyimpan reaksi komentar:", err.message);
-      delete userReactions[cid]; // gagal simpan, batalkan status aktif di layar
+      // Gagal simpan — batalkan status aktif & angka optimistic-nya di layar
+      const field = type === "like" ? "likeCount" : "dislikeCount";
+      const target = allComments.find(c => c.id === cid);
+      if (target) target[field] = Math.max((target[field] || 1) - 1, 0);
+      delete userReactions[cid];
       renderCommentsList();
     }
   }
