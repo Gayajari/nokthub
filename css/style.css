@@ -253,6 +253,11 @@ body.comment-focus-active #comments-heading{
   z-index:60;
   border-radius:var(--radius);
   transition:box-shadow .25s ease;
+  /* FIX: dulu gak ada jarak bawah, jadi tombol "Kirim" bisa nempel/numpuk
+     ke baris tombol sort (Terbaru/Terlama) tepat di bawahnya, terutama saat
+     textarea auto-grow (JS) bikin tinggi box berubah dikit. Tambahan ini
+     murni spacing, tidak mengubah posisi/ukuran box saat tidak fokus. */
+  margin-bottom:14px;
 }
 .comment-box.is-focused{
   position:fixed;
@@ -268,6 +273,20 @@ body.comment-focus-active #comments-heading{
 }
 #comment-box-placeholder{
   display:none;
+}
+
+/* FIX: tombol "Kirim" (#btn-comment) sebelumnya nempel langsung ke bawah
+   textarea tanpa jarak, gampang keliatan numpuk ke elemen berikutnya.
+   Ini cuma spacing, tidak menyentuh ukuran/warna/posisi tombol. */
+#btn-comment{
+  margin-top:8px;
+  display:inline-block;
+}
+
+/* FIX: kasih sedikit jarak atas ke baris tombol sort komentar supaya
+   ada nafas dari .comment-box di atasnya (sebelumnya nempel rapat). */
+#sort-newest, #sort-oldest{
+  margin-top:4px;
 }
 
 @media(max-width:900px){
@@ -300,4 +319,24 @@ body.comment-focus-active #comments-heading{
   .section-head{align-items:flex-start;flex-direction:column;gap:4px}
   .section-head .nav-btn{align-self:flex-end;margin-top:-28px}
   .card-title{font-size:.85rem}
+}
+
+/* ---------- FIX: arrow toggle "Komentar" ----------
+   Sebelumnya arrow pakai karakter Unicode "▾"/"▴" yang ditulis JS
+   (arrow.textContent = ...). Di sebagian HP/font, karakter itu gagal
+   render dan cuma muncul titik kecil. Diganti ke CSS triangle murni +
+   rotasi berbasis atribut aria-expanded (yang sudah di-set oleh JS),
+   jadi TIDAK perlu ubah JS sama sekali kecuali baris textContent-nya. */
+.comment-toggle-arrow{
+  display:inline-block;
+  width:0;
+  height:0;
+  border-left:5px solid transparent;
+  border-right:5px solid transparent;
+  border-top:6px solid var(--text-muted);
+  transition:transform .2s ease;
+  vertical-align:middle;
+}
+.comment-toggle-header[aria-expanded="true"] .comment-toggle-arrow{
+  transform:rotate(180deg);
 }
