@@ -180,12 +180,76 @@ select.category-select{
   color:var(--text-muted);font-size:.82rem;cursor:pointer;background:var(--surface);
 }
 .share-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ---------- Like video button ---------- */
+#btn-like{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 14px;border-radius:8px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text-muted);cursor:pointer;font-size:.82rem;
+  transition:.15s;
+}
+#btn-like:hover{border-color:var(--accent);color:var(--accent)}
+#btn-like.is-active{
+  background:var(--accent-dim);
+  border-color:var(--accent);
+  color:var(--accent);
+}
+
 .comment-box textarea{
   width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;
   color:var(--text);padding:10px;min-height:70px;font-family:var(--font-body);resize:vertical;
 }
 .comment-item{border-bottom:1px solid var(--border);padding:12px 0;display:flex;gap:10px}
 .comment-item img{width:34px;height:34px;border-radius:50%}
+
+/* ---------- Comment like/dislike reactions ---------- */
+.comment-react{
+  display:inline-flex;align-items:center;gap:5px;cursor:pointer;
+  padding:4px 8px;border-radius:6px;transition:.15s;
+}
+.comment-react:hover{color:var(--text)}
+.comment-react.is-active{
+  background:var(--accent-dim);
+  color:var(--accent);
+  filter:brightness(1.15);
+}
+
+/* ---------- Efek zoom kolom komentar ----------
+   Saat #comment-input difokus: video-meta (judul, stats, share, desc, tags)
+   di-fade jadi transparan & non-interaktif, sedangkan kolom komentar
+   berubah jadi position:fixed, geser ke posisi tepat di bawah player,
+   lalu zoom-in sedikit. Player video sendiri tidak disentuh sama sekali
+   jadi tetap terlihat penuh di atas. Balik normal saat klik di luar. */
+#video-meta{
+  transition:opacity .2s ease;
+}
+body.comment-focus-active #video-meta{
+  opacity:0;
+  pointer-events:none;
+}
+
+.comment-box{
+  position:relative;
+  z-index:5;
+  border-radius:var(--radius);
+  transition:box-shadow .25s ease;
+}
+.comment-box.is-focused{
+  position:fixed;
+  z-index:60;
+  background:var(--surface);
+  border:1px solid var(--border);
+  padding:14px;
+  box-shadow:0 16px 36px rgba(0,0,0,.55);
+  animation:comment-zoom-in .25s ease forwards;
+}
+@keyframes comment-zoom-in{
+  from{ transform:scale(.94); opacity:.5; }
+  to{ transform:scale(1); opacity:1; }
+}
+#comment-box-placeholder{
+  display:none;
+}
 
 @media(max-width:900px){
   .watch-layout{grid-template-columns:1fr}
