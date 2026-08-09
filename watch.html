@@ -96,6 +96,7 @@
 <main class="container watch-layout">
   <div id="watch-col">
     <div id="player-container" class="player-wrap"></div>
+    <div id="player-placeholder"></div>
 
     <!-- video-meta: bagian ini yang akan "ketutup" (fade) sementara pas kolom komentar difokus -->
     <div id="video-meta">
@@ -128,7 +129,7 @@
     </div>
 
     <section style="margin-top:30px">
-      <h2 style="font-family:var(--font-display);margin-bottom:12px">Komentar</h2>
+      <h2 id="comments-heading" style="font-family:var(--font-display);margin-bottom:12px">Komentar</h2>
 
       <!-- Placeholder: menjaga tinggi ruang saat comment-box berubah jadi position:fixed,
            biar konten di bawahnya (count/sort/list) gak "loncat" ke atas -->
