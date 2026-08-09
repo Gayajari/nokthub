@@ -38,9 +38,28 @@ function updateCommentBoxState() {
   if (!input || !btn) return;
   const loggedIn = !!currentUser;
   input.disabled = !loggedIn;
-  btn.disabled = !loggedIn;
   input.placeholder = loggedIn ? "Tulis komentar..." : "Tulis komentar...";
   if (hint) hint.style.display = loggedIn ? "none" : "inline";
+  // PENYEMPURNAAN: tombol kirim (sekarang ikon SVG bulat) punya 2 syarat
+  // aktif -- harus login DAN teks tidak kosong. Textarea cukup dikontrol
+  // oleh login saja seperti semula; state disabled tombol didelegasikan
+  // ke refreshSendButtonState() biar satu sumber kebenaran (lihat di bawah).
+  refreshSendButtonState();
+}
+
+// ---------- State tombol kirim (ikon SVG bulat) ----------
+// Tombol AKTIF hanya kalau: user sudah login DAN teks komentar tidak
+// kosong/spasi doang. Dipanggil tiap kali status login berubah
+// (updateCommentBoxState) maupun tiap user mengetik (listener "input" di
+// setupCompactCommentLayout). Murni UI state -- tidak menyentuh Firestore
+// atau logic kirim komentar itu sendiri.
+function refreshSendButtonState() {
+  const input = document.getElementById("comment-input");
+  const btn = document.getElementById("btn-comment");
+  if (!input || !btn) return;
+  const loggedIn = !!currentUser;
+  const hasText = input.value.trim().length > 0;
+  btn.disabled = !loggedIn || !hasText;
 }
 
 async function loadVideo() {
@@ -607,8 +626,13 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
   const text = input.value.trim();
   if (!text) return;
 
+  // PENYEMPURNAAN: dulu feedback "lagi ngirim" ditulis lewat
+  // btn.textContent = "Mengirim..." lalu balik ke "Kirim". Sekarang tombol
+  // adalah ikon SVG (pesawat kertas) yang isinya tidak diganti-ganti --
+  // feedback "lagi ngirim" & "sukses kirim" dipindah ke class CSS
+  // (is-sending / sent) yang meredupkan / memberi micro-pulse ke ikonnya.
   btn.disabled = true;
-  btn.textContent = "Mengirim...";
+  btn.classList.add("is-sending");
   try {
     await addDoc(collection(db, "comments"), {
       videoId, uid: currentUser.uid,
@@ -624,13 +648,20 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
     // overlay jalan seperti biasa, dan user langsung lihat komentar
     // barunya di daftar (posisi udah balik normal).
     input.blur();
+    // Micro-interaction sukses kirim: pulse singkat pada ikon SVG.
+    btn.classList.remove("is-sending");
+    btn.classList.add("sent");
+    setTimeout(() => btn.classList.remove("sent"), 400);
   } catch (err) {
     console.error("Gagal mengirim komentar:", err.message);
     alert("Komentar gagal terkirim. Coba lagi sebentar lagi.\n(" + err.message + ")");
     // Gagal kirim -> jangan ditutup, biarkan user coba lagi tanpa harus fokus ulang.
+    btn.classList.remove("is-sending");
   } finally {
-    btn.disabled = !currentUser;
-    btn.textContent = "Kirim";
+    // Teks sudah dikosongkan (sukses) atau masih ada (gagal) -- baik pun,
+    // refreshSendButtonState() yang menentukan aktif/tidaknya tombol
+    // berikutnya berdasarkan status login + isi textarea saat ini.
+    refreshSendButtonState();
   }
 });
 
@@ -877,8 +908,10 @@ function setupCommentFocusZoom() {
 commentZoomController = setupCommentFocusZoom();
 
 // ---------- Layout ringkas: textarea auto-resize + daftar komentar dibatasi tinggi ----------
-const COMMENT_TEXTAREA_MIN_H = 44;   // ~2 baris
-const COMMENT_TEXTAREA_MAX_H = 120;  // ~5 baris sebelum scroll sendiri
+// PENYEMPURNAAN: dipersempit sedikit (44->38, 120->100) supaya kolom
+// input terasa lebih compact, sesuai pola aplikasi video modern.
+const COMMENT_TEXTAREA_MIN_H = 38;   // ~1.5 baris
+const COMMENT_TEXTAREA_MAX_H = 100;  // ~4 baris sebelum scroll sendiri
 const COMMENT_LIST_MAX_H = "min(50vh, 420px)";
 
 function resetTextareaHeight(el) {
@@ -901,13 +934,44 @@ function autoGrowTextarea(el) {
     input.style.setProperty("overflow-y", "auto", "important");
     input.style.setProperty("resize", "none", "important");
     resetTextareaHeight(input);
-    input.addEventListener("input", () => autoGrowTextarea(input));
+    input.addEventListener("input", () => {
+      autoGrowTextarea(input);
+      // PENYEMPURNAAN: sinkronkan disabled/enabled tombol kirim SVG tiap
+      // user mengetik (empty = disabled, ada isi = enabled) -- tidak
+      // menyentuh logic auto-grow yang sudah ada di atasnya.
+      refreshSendButtonState();
+    });
+    refreshSendButtonState(); // state awal saat halaman baru dibuka
   }
 
   if (list) {
     list.style.setProperty("max-height", COMMENT_LIST_MAX_H, "important");
     list.style.setProperty("overflow-y", "auto", "important");
+    // PENYEMPURNAAN: containment scroll -- scroll di dalam daftar komentar
+    // TIDAK "bocor" ke scroll halaman utama saat sudah mentok atas/bawah
+    // (mencegah scroll chaining yang mengganggu). -webkit-overflow-scrolling
+    // bikin momentum scroll di iOS terasa natural.
+    list.style.setProperty("overscroll-behavior", "contain", "important");
+    list.style.setProperty("-webkit-overflow-scrolling", "touch", "important");
   }
+})();
+
+// ---------- Tombol kirim: ikon SVG pesawat kertas (bulat) ----------
+// Menggantikan TAMPILAN tombol teks "Kirim" jadi tombol bulat berisi SVG
+// inline -- id, event listener "click", dan seluruh logic kirim komentar
+// TIDAK berubah sama sekali (listener tetap terpasang ke elemen
+// #btn-comment yang sama persis).
+(function setupSendButtonIcon() {
+  const btn = document.getElementById("btn-comment");
+  if (!btn) return;
+  btn.classList.add("btn-send");
+  btn.setAttribute("aria-label", "Kirim komentar");
+  btn.innerHTML = `
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m22 2-7 20-4-9-9-4Z"/>
+      <path d="M22 2 11 13"/>
+    </svg>`;
 })();
 
 // ---------- Deskripsi ringkas dengan toggle "Selengkapnya" ----------
@@ -998,6 +1062,60 @@ function injectCommentToggleStyles() {
        jadi tinggi tetap stabil walau isi teks beda panjang. */
     .comment-preview{transition:opacity .2s ease, transform .2s ease}
     .comment-preview.preview-rotating{opacity:0;transform:translateY(-4px)}
+
+    /* ---- Sticky sub-header (jumlah komentar + sort) di dalam area
+       komentar yang terbuka ----
+       Elemen ini ditaruh SEBELUM #comment-list secara DOM (bukan anak dari
+       list yang di-scroll), jadi dia otomatis selalu terlihat begitu list
+       di-scroll ke bawah -- position:sticky ditambahkan sebagai jaring
+       pengaman ekstra di skenario/browser tertentu. */
+    #comment-subheader{
+      position:sticky;
+      top:0;
+      z-index:5;
+      background:var(--surface,#141416);
+      border-bottom:1px solid var(--border,#232326);
+      padding-top:8px;
+      padding-bottom:8px;
+      margin-top:0 !important;
+      transition:padding .25s ease;
+    }
+
+    /* ---- Compact mode saat daftar komentar di-scroll ----
+       Dipicu class "comments-scrolled" pada wrapper #comment-expand-content
+       (lihat listener "scroll" di setupCollapsibleCommentsSection). Cuma
+       padding/spacing yang dikurangi, info & ukuran font tidak disentuh. */
+    #comment-expand-content.comments-scrolled #comment-subheader{
+      padding-top:4px;
+      padding-bottom:4px;
+    }
+    .comment-item{
+      transition:padding .22s ease;
+    }
+    #comment-expand-content.comments-scrolled .comment-item{
+      padding:7px 0;
+    }
+
+    /* ---- Tombol kirim: ikon SVG pesawat kertas, bulat ----
+       Menggantikan tampilan tombol teks lama TANPA mengubah id/listener. */
+    #btn-comment.btn-send{
+      width:38px;height:38px;min-width:38px;padding:0;
+      border-radius:50%;
+      display:inline-flex;align-items:center;justify-content:center;
+      background:var(--accent,#ff7a1a);
+      color:#0A0A0B;border:none;cursor:pointer;
+      transition:transform .15s ease, opacity .15s ease, filter .15s ease;
+    }
+    #btn-comment.btn-send:hover:not(:disabled){ filter:brightness(1.08); }
+    #btn-comment.btn-send:active:not(:disabled){ transform:scale(.88); }
+    #btn-comment.btn-send:disabled{ opacity:.4; cursor:not-allowed; }
+    #btn-comment.btn-send.is-sending{ opacity:.7; }
+    @keyframes nokt-send-pulse{
+      0%{ transform:scale(1); }
+      45%{ transform:scale(1.22); }
+      100%{ transform:scale(1); }
+    }
+    #btn-comment.btn-send.sent{ animation: nokt-send-pulse .4s ease; }
   `;
   document.head.appendChild(style);
 }
@@ -1105,11 +1223,19 @@ function updateCommentToggleHeader(topLevel) {
   if (!countEl) return;
 
   const count = topLevel.length;
-  const countText = `${count} komentar`;
-  countEl.textContent = countText;
+  // PENYEMPURNAAN: dua format teks berbeda untuk dua tempat berbeda --
+  //  - subHeaderText ("Komentar 380") dipakai di header sticky DI DALAM
+  //    area komentar yang terbuka, menggantikan teks lama "380 komentar"
+  //    di baris yang sama dengan tombol sort.
+  //  - previewText ("380 komentar") TETAP dipakai di preview di bawah
+  //    heading "Komentar ▾" saat section masih collapsed -- supaya kata
+  //    "Komentar" tidak dobel (headingnya sendiri sudah bertuliskan itu).
+  const subHeaderText = `Komentar ${count}`;
+  const previewText = `${count} komentar`;
+  countEl.textContent = subHeaderText;
 
   if (headerCountEl) {
-    headerCountEl.textContent = countText;
+    headerCountEl.textContent = previewText;
     // Cuma tampil saat collapsed -- saat expanded, angka asli di baris
     // sort (countEl) yang kelihatan, jadi tidak dobel.
     headerCountEl.style.display = commentSectionExpanded ? "none" : "";
@@ -1184,6 +1310,13 @@ function updateCommentToggleHeader(topLevel) {
   // seperti semula -- tidak ada elemen yang dicerai-beraikan.
   const sortRow = sortNewest ? sortNewest.parentElement.parentElement : null;
 
+  // PENYEMPURNAAN: baris ini (jumlah komentar + tombol sort) dijadikan
+  // header sticky di dalam area komentar. Diberi id supaya bisa ditarget
+  // CSS (#comment-subheader di injectCommentToggleStyles) tanpa mengubah
+  // konten/child elemennya sama sekali -- masih sortNewest & sortOldest
+  // yang sama, masih countEl yang sama.
+  if (sortRow) sortRow.id = "comment-subheader";
+
   if (!heading || !list) return;
 
   injectCommentToggleStyles();
@@ -1240,10 +1373,29 @@ function updateCommentToggleHeader(topLevel) {
   contentWrap.id = "comment-expand-content";
   contentWrap.className = "comment-expand-content";
   list.parentNode.insertBefore(contentWrap, box || sortRow || list);
-  // FIX: sortRow (satu baris utuh count+sort) yang dipindah, bukan
-  // sortNewest/sortOldest satu-satu -- struktur flex/space-between aslinya
-  // jadi tetap sama persis seperti di HTML.
-  [box, sortRow, list].forEach(el => { if (el) contentWrap.appendChild(el); });
+  // FIX (dipertahankan): sortRow (satu baris utuh count+sort) yang
+  // dipindah, bukan sortNewest/sortOldest satu-satu -- struktur
+  // flex/space-between aslinya tetap sama persis seperti di HTML.
+  //
+  // PENYEMPURNAAN: urutan penempatan diubah dari [box, sortRow, list]
+  // jadi [sortRow, list, box] -- supaya sesuai pola "header sticky ->
+  // daftar scroll -> input di bawah" ala aplikasi video modern. Elemennya
+  // SAMA PERSIS (tidak ada yang dibuat baru/dihapus), cuma urutan taruh
+  // di dalam contentWrap yang berubah.
+  [sortRow, list, box].forEach(el => { if (el) contentWrap.appendChild(el); });
+
+  // ---------- Compact mode saat daftar komentar di-scroll ----------
+  // Begitu user scroll #comment-list menjauh dari paling atas, header
+  // sticky & item komentar jadi lebih padat (padding dikurangi lewat CSS
+  // class "comments-scrolled", transisinya diatur CSS transition ~220-250ms
+  // di injectCommentToggleStyles). Balik normal lagi begitu scroll kembali
+  // ke posisi paling atas. Ini scroll INTERNAL milik #comment-list saja,
+  // TIDAK ada hubungannya dengan scroll halaman utama.
+  if (list) {
+    list.addEventListener("scroll", () => {
+      contentWrap.classList.toggle("comments-scrolled", list.scrollTop > 8);
+    }, { passive: true });
+  }
 
   function applyState(expanded, animate) {
     commentSectionExpanded = expanded;
