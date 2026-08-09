@@ -4,7 +4,7 @@
 import {
   db, auth, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc,
   deleteDoc, query, where, orderBy, limit, increment, serverTimestamp,
-  onAuthStateChanged, onSnapshot, writeBatch
+  onAuthStateChanged, onSnapshot
 } from "./firebase-config.js";
 import { renderPlayer, trackResumePosition } from "./player.js";
 import { escapeHtml, renderVideoCard } from "./app.js";
@@ -562,20 +562,22 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
     const prevType = userReactions[cid];
 
     try {
-      // writeBatch dipakai supaya perubahan dokumen reaksi + counter like/
-      // dislike pada komentar tercatat sebagai SATU operasi atomik (bukan
-      // dua request terpisah yang bisa "nyangkut" separuh jalan), sekaligus
-      // tetap pakai increment() server-side biar aman dari race condition
-      // saat banyak user bereaksi hampir bersamaan.
-      const batch = writeBatch(db);
-
+      // Catatan: idealnya dua penulisan di bawah (dokumen reaksi + counter
+      // like/dislike komentar) digabung jadi satu writeBatch supaya atomik.
+      // Untuk sekarang dibuat sekuensial biasa (setDoc/deleteDoc lalu
+      // updateDoc) supaya TIDAK butuh import "writeBatch" tambahan dari
+      // firebase-config.js. increment() tetap dipakai jadi counter tetap
+      // aman dari race condition banyak user bereaksi bersamaan; yang
+      // belum sepenuhnya atomik cuma kombinasi "reaction doc + counter"
+      // itu sendiri kalau salah satu request gagal di tengah jalan.
       if (prevType === type) {
         // klik ulang tombol yang sama -> batalkan reaksi
         const field = type === "like" ? "likeCount" : "dislikeCount";
         if (target) target[field] = Math.max((target[field] || 1) - 1, 0);
         delete userReactions[cid];
-        batch.delete(reactRef);
-        batch.update(commentRef, { [field]: increment(-1) });
+        renderCommentsList();
+        await deleteDoc(reactRef);
+        await updateDoc(commentRef, { [field]: increment(-1) });
 
       } else if (prevType) {
         // pindah dari like ke dislike (atau sebaliknya)
@@ -586,20 +588,19 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
           target[newField] = (target[newField] || 0) + 1;
         }
         userReactions[cid] = type;
-        batch.set(reactRef, { commentId: cid, uid: currentUser.uid, type, videoId });
-        batch.update(commentRef, { [oldField]: increment(-1), [newField]: increment(1) });
+        renderCommentsList();
+        await setDoc(reactRef, { commentId: cid, uid: currentUser.uid, type, videoId });
+        await updateDoc(commentRef, { [oldField]: increment(-1), [newField]: increment(1) });
 
       } else {
         // belum pernah bereaksi -> reaksi baru
         const field = type === "like" ? "likeCount" : "dislikeCount";
         if (target) target[field] = (target[field] || 0) + 1;
         userReactions[cid] = type;
-        batch.set(reactRef, { commentId: cid, uid: currentUser.uid, type, videoId });
-        batch.update(commentRef, { [field]: increment(1) });
+        renderCommentsList();
+        await setDoc(reactRef, { commentId: cid, uid: currentUser.uid, type, videoId });
+        await updateDoc(commentRef, { [field]: increment(1) });
       }
-
-      renderCommentsList(); // update tampilan optimis dulu
-      await batch.commit();
     } catch (err) {
       console.error("Gagal menyimpan reaksi komentar:", err.message);
       if (prevType) userReactions[cid] = prevType; else delete userReactions[cid];
