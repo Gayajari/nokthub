@@ -1206,7 +1206,12 @@ function updateCommentToggleHeader(topLevel) {
 
   const arrow = document.createElement("span");
   arrow.className = "comment-toggle-arrow";
-  arrow.textContent = "▾";
+  // FIX: dulu diisi karakter unicode "▾" di sini. Sekarang segitiga
+  // digambar murni via CSS border (.comment-toggle-arrow di style.css)
+  // dan rotasinya mengikuti atribut aria-expanded yang di-set di
+  // applyState() di bawah -- textContent SENGAJA dikosongkan supaya
+  // tidak ada karakter unicode yang bertumpuk dengan triangle CSS.
+  arrow.textContent = "";
   headingRow.appendChild(arrow);
   headerWrap.appendChild(headingRow);
 
@@ -1242,7 +1247,11 @@ function updateCommentToggleHeader(topLevel) {
 
   function applyState(expanded, animate) {
     commentSectionExpanded = expanded;
-    arrow.textContent = expanded ? "▴" : "▾";
+    // FIX: dulu di sini juga diisi "▴"/"▾" (arrow.textContent = expanded ?
+    // "▴" : "▾"). Sekarang textContent tidak lagi disentuh -- rotasi arah
+    // panah sepenuhnya ditangani CSS via selector
+    // .comment-toggle-header[aria-expanded="true"] .comment-toggle-arrow,
+    // yang dipicu oleh setAttribute("aria-expanded", ...) tepat di bawah ini.
     headerWrap.setAttribute("aria-expanded", String(expanded));
 
     if (!animate) {
