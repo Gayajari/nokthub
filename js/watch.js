@@ -162,7 +162,7 @@ function getAnonId() {
   return id;
 }
 
-// ---------- Like video ----------
+// ---------- Like video (toggle: klik lagi = batalkan like) ----------
 async function checkLikeState() {
   const btn = document.getElementById("btn-like");
   if (!btn) return;
@@ -181,10 +181,17 @@ document.getElementById("btn-like").addEventListener("click", async () => {
   try {
     const likeRef = doc(db, "likes", `${videoId}_${currentUser.uid}`);
     const snap = await getDoc(likeRef);
-    if (snap.exists()) { btn.classList.add("is-active"); return; } // sudah like
-    await setDoc(likeRef, { videoId, uid: currentUser.uid });
-    await updateDoc(doc(db, "videos", videoId), { likeCount: increment(1) });
-    btn.classList.add("is-active");
+    if (snap.exists()) {
+      // Sudah like -> klik lagi berarti batalkan (unlike)
+      await deleteDoc(likeRef);
+      await updateDoc(doc(db, "videos", videoId), { likeCount: increment(-1) });
+      btn.classList.remove("is-active");
+    } else {
+      // Belum like -> like baru
+      await setDoc(likeRef, { videoId, uid: currentUser.uid });
+      await updateDoc(doc(db, "videos", videoId), { likeCount: increment(1) });
+      btn.classList.add("is-active");
+    }
   } catch (err) {
     console.error("Gagal menyimpan like:", err.message);
   }
@@ -251,6 +258,7 @@ let commentSortOrder = "desc"; // "desc" = terbaru dulu, "asc" = terlama dulu
 let commentDisplayLimit = 8; // jumlah komentar yang ditampilkan awal, nambah tiap klik "Muat lebih banyak"
 const COMMENT_BATCH_SIZE = 8;
 let unsubscribeComments = null; // listener realtime komentar, diganti tiap kali sort order berubah
+const pendingReactions = new Set(); // id komentar yang lagi diproses reaksinya, cegah klik dobel sebelum selesai
 
 // Live listener: sekali dipasang, tiap ada komentar baru / like / dislike baru
 // (dari siapa pun, tanpa perlu reload) daftar komentar otomatis update sendiri —
@@ -340,7 +348,6 @@ function renderComment(c, all) {
   const myReaction = userReactions[c.id];
   const likeActive = myReaction === "like" ? "is-active" : "";
   const dislikeActive = myReaction === "dislike" ? "is-active" : "";
-  const disabledClass = myReaction ? "is-disabled" : "";
   return `
     <div class="comment-item">
       <img src="${c.userPhoto || 'https://via.placeholder.com/34'}" alt="">
@@ -348,8 +355,8 @@ function renderComment(c, all) {
         <div style="font-size:.85rem;font-weight:600">${escapeHtml(c.userName || 'User')}</div>
         <div style="font-size:.85rem;margin:4px 0">${escapeHtml(c.text)}</div>
         <div style="display:flex;gap:14px;font-size:.72rem;color:var(--text-muted)">
-          <span class="comment-react ${likeActive} ${disabledClass}" data-react="like" data-cid="${c.id}">${ICON_THUMB_UP} ${c.likeCount||0}</span>
-          <span class="comment-react ${dislikeActive} ${disabledClass}" data-react="dislike" data-cid="${c.id}">${ICON_THUMB_DOWN} ${c.dislikeCount||0}</span>
+          <span class="comment-react ${likeActive}" data-react="like" data-cid="${c.id}">${ICON_THUMB_UP} ${c.likeCount||0}</span>
+          <span class="comment-react ${dislikeActive}" data-react="dislike" data-cid="${c.id}">${ICON_THUMB_DOWN} ${c.dislikeCount||0}</span>
           ${isOwner ? `<span style="cursor:pointer" data-del="${c.id}">Hapus</span>` : ""}
         </div>
         ${replies.map(r => `
@@ -402,38 +409,116 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
   const reactEl = e.target.closest("[data-react]");
   if (reactEl) {
     if (!currentUser) { window.location.href = "login.html"; return; }
-    if (reactEl.classList.contains("is-disabled")) return; // sudah pernah react, cegah double klik
 
     const cid = reactEl.dataset.cid;
-    const type = reactEl.dataset.react; // "like" atau "dislike"
+    const type = reactEl.dataset.react; // "like" atau "dislike" — yang baru diklik
+    if (pendingReactions.has(cid)) return; // masih ada proses jalan buat komentar ini, cegah klik dobel
+    pendingReactions.add(cid);
+
     const reactRef = doc(db, "comment_reactions", `${cid}_${currentUser.uid}`);
+    const target = allComments.find(c => c.id === cid);
+    const prevType = userReactions[cid]; // reaksi sebelumnya: "like" | "dislike" | undefined
+
     try {
-      const snap = await getDoc(reactRef);
-      if (snap.exists()) return; // sudah pernah react sebelumnya
+      if (prevType === type) {
+        // Klik reaksi yang sama lagi -> batalkan, jadi netral (gak like/dislike sama sekali)
+        if (target) target[type === "like" ? "likeCount" : "dislikeCount"] =
+          Math.max((target[type === "like" ? "likeCount" : "dislikeCount"] || 1) - 1, 0);
+        delete userReactions[cid];
+        renderCommentsList();
+        await deleteDoc(reactRef);
 
-      // Optimistic update: status "aktif" DAN angkanya langsung berubah di layar
-      // begitu diklik, gak nunggu balasan server — kayak nambah komentar baru yang
-      // langsung muncul. Nilai aslinya tetap disinkron ulang begitu listener
-      // realtime nangkep balasan dari Firestore (biasanya sama, buat jaga-jaga
-      // kalau ada user lain react bersamaan).
-      const field = type === "like" ? "likeCount" : "dislikeCount";
-      const target = allComments.find(c => c.id === cid);
-      if (target) target[field] = (target[field] || 0) + 1;
-      userReactions[cid] = type;
-      renderCommentsList();
+      } else if (prevType) {
+        // Sudah pernah react dengan tipe lain -> pindah (mis. dari like ke dislike)
+        const oldField = prevType === "like" ? "likeCount" : "dislikeCount";
+        const newField = type === "like" ? "likeCount" : "dislikeCount";
+        if (target) {
+          target[oldField] = Math.max((target[oldField] || 1) - 1, 0);
+          target[newField] = (target[newField] || 0) + 1;
+        }
+        userReactions[cid] = type;
+        renderCommentsList();
+        await setDoc(reactRef, { commentId: cid, uid: currentUser.uid, type });
+        await updateDoc(doc(db, "comments", cid), { [oldField]: increment(-1), [newField]: increment(1) });
 
-      await setDoc(reactRef, { commentId: cid, uid: currentUser.uid, type });
-      await updateDoc(doc(db, "comments", cid), { [field]: increment(1) });
+      } else {
+        // Belum pernah react -> react baru
+        const field = type === "like" ? "likeCount" : "dislikeCount";
+        if (target) target[field] = (target[field] || 0) + 1;
+        userReactions[cid] = type;
+        renderCommentsList();
+        await setDoc(reactRef, { commentId: cid, uid: currentUser.uid, type });
+        await updateDoc(doc(db, "comments", cid), { [field]: increment(1) });
+      }
     } catch (err) {
       console.error("Gagal menyimpan reaksi komentar:", err.message);
-      // Gagal simpan — batalkan status aktif & angka optimistic-nya di layar
-      const field = type === "like" ? "likeCount" : "dislikeCount";
-      const target = allComments.find(c => c.id === cid);
-      if (target) target[field] = Math.max((target[field] || 1) - 1, 0);
-      delete userReactions[cid];
+      // Gagal simpan — batalkan semua perubahan optimistic, balik ke kondisi semula
+      if (prevType) userReactions[cid] = prevType; else delete userReactions[cid];
       renderCommentsList();
+      alert("Gagal menyimpan reaksi. Coba lagi.");
+    } finally {
+      pendingReactions.delete(cid);
     }
   }
 });
+
+// ---------- Efek zoom kolom komentar ----------
+// Saat textarea komentar difokus, kolom komentar "geser" jadi position:fixed
+// tepat di bawah player lalu zoom-in, sementara video-meta (judul, stats,
+// share, desc, tags) di-fade sebentar. Player video sendiri tidak disentuh,
+// jadi tetap kelihatan penuh. Balik normal saat klik di luar kolom komentar.
+(function setupCommentFocusZoom() {
+  const box = document.querySelector(".comment-box");
+  const input = document.getElementById("comment-input");
+  const placeholder = document.getElementById("comment-box-placeholder");
+  const col = document.getElementById("watch-col");
+  const player = document.getElementById("player-container");
+  if (!box || !input || !placeholder || !col || !player) return;
+
+  function positionBox() {
+    const colRect = col.getBoundingClientRect();
+    const playerRect = player.getBoundingClientRect();
+    box.style.top = (playerRect.bottom + 12) + "px";
+    box.style.left = colRect.left + "px";
+    box.style.width = colRect.width + "px";
+  }
+
+  function activate() {
+    if (input.disabled) return; // belum login -> gak perlu efek apa-apa
+    if (box.classList.contains("is-focused")) return;
+
+    const boxRect = box.getBoundingClientRect();
+    placeholder.style.height = boxRect.height + "px";
+    placeholder.style.display = "block";
+
+    positionBox();
+    box.classList.add("is-focused");
+    document.body.classList.add("comment-focus-active");
+  }
+
+  function deactivate() {
+    if (!box.classList.contains("is-focused")) return;
+    box.classList.remove("is-focused");
+    document.body.classList.remove("comment-focus-active");
+    box.style.top = "";
+    box.style.left = "";
+    box.style.width = "";
+    placeholder.style.display = "none";
+  }
+
+  input.addEventListener("focus", activate);
+
+  // Klik di luar kolom komentar -> tutup lagi (kecuali klik di dalam kolom itu sendiri)
+  document.addEventListener("click", (e) => {
+    if (!box.classList.contains("is-focused")) return;
+    if (box.contains(e.target)) return;
+    deactivate();
+  });
+
+  // Reposisi ulang kalau ukuran layar berubah selagi overlay aktif
+  window.addEventListener("resize", () => {
+    if (box.classList.contains("is-focused")) positionBox();
+  });
+})();
 
 loadVideo();
