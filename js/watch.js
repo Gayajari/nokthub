@@ -27,7 +27,7 @@ onAuthStateChanged(auth, (u) => {
   currentUser = u;
   checkLikeState();
   updateCommentBoxState();
-  loadComments(); // reload biar tombol like/dislike & status login-nya sinkron ulang
+  loadUserReactions(); // sinkronkan status like/dislike komentar sesuai user yang login
 });
 
 // Aktifkan/nonaktifkan kotak komentar sesuai status login.
@@ -59,7 +59,7 @@ async function loadVideo() {
   // countView() dipindah, sekarang dipanggil dari trackResumePosition setelah nonton 10 detik
   listenVideoStats(); // view/like update realtime tanpa reload
   await loadRelated();
-  loadComments();
+  listenComments();
   checkLikeState();
 }
 
@@ -246,43 +246,80 @@ async function loadRelated() {
 
 // ---------- Comments ----------
 let allComments = [];
-let userReactions = {}; // { commentId: "like" | "dislike" }, dimuat sekali per load
+let userReactions = {}; // { commentId: "like" | "dislike" }, dimuat sekali per login/video
 let commentSortOrder = "desc"; // "desc" = terbaru dulu, "asc" = terlama dulu
+let commentDisplayLimit = 8; // jumlah komentar yang ditampilkan awal, nambah tiap klik "Muat lebih banyak"
+const COMMENT_BATCH_SIZE = 8;
+let unsubscribeComments = null; // listener realtime komentar, diganti tiap kali sort order berubah
 
-function loadComments() {
+// Live listener: sekali dipasang, tiap ada komentar baru / like / dislike baru
+// (dari siapa pun, tanpa perlu reload) daftar komentar otomatis update sendiri —
+// sama seperti listenVideoStats() untuk view/like video.
+function listenComments() {
+  if (unsubscribeComments) unsubscribeComments();
   const list = document.getElementById("comment-list");
   const q = query(
     collection(db, "comments"),
     where("videoId", "==", videoId),
     orderBy("createdAt", commentSortOrder)
   );
-  getDocs(q).then(async (snap) => {
+  unsubscribeComments = onSnapshot(q, (snap) => {
     allComments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    await loadUserReactions();
-    const topLevel = allComments.filter(c => !c.parentId);
-    list.innerHTML = topLevel.map(c => renderComment(c, allComments)).join("")
-      || `<p style="color:var(--text-muted)">Belum ada komentar. Jadilah yang pertama!</p>`;
-    const countEl = document.getElementById("comment-count");
-    if (countEl) countEl.textContent = `${topLevel.length} komentar`;
-  }).catch(err => {
+    renderCommentsList();
+  }, (err) => {
     console.error("Gagal memuat komentar:", err.code, err.message);
     list.innerHTML = `<p style="color:var(--text-muted)">Gagal memuat komentar.<br>
       <span style="font-size:.75rem;opacity:.8">Kode error: ${escapeHtml(err.code || '-')}<br>${escapeHtml(err.message || '')}</span></p>`;
   });
 }
+window.addEventListener("beforeunload", () => { if (unsubscribeComments) unsubscribeComments(); });
+
+// Render ulang dari data yang sudah ada di memori (allComments) — dipanggil tiap
+// snapshot berubah maupun tiap klik "Muat lebih banyak", tanpa perlu fetch ulang
+// ke Firestore, jadi ringan.
+function renderCommentsList() {
+  const list = document.getElementById("comment-list");
+  const topLevel = allComments.filter(c => !c.parentId);
+  const visible = topLevel.slice(0, commentDisplayLimit);
+
+  list.innerHTML = visible.map(c => renderComment(c, allComments)).join("")
+    || `<p style="color:var(--text-muted)">Belum ada komentar. Jadilah yang pertama!</p>`;
+
+  // Tombol "Muat lebih banyak" — cuma muncul kalau masih ada komentar
+  // yang belum ditampilkan, biar halaman gak jadi panjang terus ke bawah
+  // sekaligus meski komentarnya ratusan.
+  if (topLevel.length > commentDisplayLimit) {
+    const sisa = topLevel.length - commentDisplayLimit;
+    list.innerHTML += `
+      <button class="share-btn" id="btn-load-more-comments" style="width:100%;margin-top:10px">
+        Muat lebih banyak (${sisa} lagi)
+      </button>`;
+  }
+
+  const countEl = document.getElementById("comment-count");
+  if (countEl) countEl.textContent = `${topLevel.length} komentar`;
+}
+
+document.getElementById("comment-list").addEventListener("click", (e) => {
+  if (e.target.id === "btn-load-more-comments") {
+    commentDisplayLimit += COMMENT_BATCH_SIZE;
+    renderCommentsList();
+  }
+});
 
 document.querySelectorAll("#sort-newest, #sort-oldest").forEach(btn => {
   btn.addEventListener("click", () => {
     commentSortOrder = btn.dataset.sort;
+    commentDisplayLimit = COMMENT_BATCH_SIZE; // reset paging tiap ganti urutan
     document.querySelectorAll("#sort-newest, #sort-oldest").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
-    loadComments();
+    listenComments();
   });
 });
 document.getElementById("sort-newest").classList.add("active"); // default: terbaru dulu
 
-// Ambil reaksi milik user saat ini untuk semua komentar yang sedang tampil,
-// supaya tombol like/dislike langsung tampil "aktif" kalau sudah pernah diklik.
+// Ambil reaksi milik user saat ini untuk semua komentar, sekali per login/ganti video —
+// BUKAN tiap snapshot berubah, supaya gak boros pembacaan Firestore.
 async function loadUserReactions() {
   userReactions = {};
   if (!currentUser || !allComments.length) return;
@@ -294,6 +331,7 @@ async function loadUserReactions() {
   } catch (err) {
     console.error("Gagal memuat reaksi komentar:", err.message);
   }
+  renderCommentsList();
 }
 
 function renderComment(c, all) {
@@ -341,7 +379,8 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
       createdAt: serverTimestamp()
     });
     input.value = "";
-    loadComments();
+    // Tidak perlu panggil apa-apa lagi di sini — listener realtime (onSnapshot)
+    // otomatis nangkep komentar baru ini dan langsung merender ulang daftar.
   } catch (err) {
     console.error("Gagal mengirim komentar:", err.message);
     alert("Komentar gagal terkirim. Coba lagi sebentar lagi.\n(" + err.message + ")");
@@ -356,7 +395,7 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
   const delId = e.target.dataset.del;
   if (delId) {
     await deleteDoc(doc(db, "comments", delId));
-    loadComments();
+    // Tidak perlu loadComments() manual — listener realtime otomatis update.
     return;
   }
 
@@ -371,13 +410,19 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
     try {
       const snap = await getDoc(reactRef);
       if (snap.exists()) return; // sudah pernah react sebelumnya
+      // Update status "aktif" duluan di layar (optimistic) — biar tombol langsung
+      // ke-lock begitu diklik, gak nunggu jaringan. Angka like/dislike-nya sendiri
+      // akan update otomatis begitu listener realtime nangkep perubahan dari server.
+      userReactions[cid] = type;
+      renderCommentsList();
       await setDoc(reactRef, { commentId: cid, uid: currentUser.uid, type });
       await updateDoc(doc(db, "comments", cid), {
         [type === "like" ? "likeCount" : "dislikeCount"]: increment(1)
       });
-      loadComments(); // reload supaya angka & status aktif ter-update
     } catch (err) {
       console.error("Gagal menyimpan reaksi komentar:", err.message);
+      delete userReactions[cid]; // gagal simpan, batalkan status aktif di layar
+      renderCommentsList();
     }
   }
 });
