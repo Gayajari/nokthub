@@ -265,8 +265,9 @@ function loadComments() {
     const countEl = document.getElementById("comment-count");
     if (countEl) countEl.textContent = `${topLevel.length} komentar`;
   }).catch(err => {
-    console.error("Gagal memuat komentar:", err.message);
-    list.innerHTML = `<p style="color:var(--text-muted)">Gagal memuat komentar. Coba muat ulang halaman.</p>`;
+    console.error("Gagal memuat komentar:", err.code, err.message);
+    list.innerHTML = `<p style="color:var(--text-muted)">Gagal memuat komentar.<br>
+      <span style="font-size:.75rem;opacity:.8">Kode error: ${escapeHtml(err.code || '-')}<br>${escapeHtml(err.message || '')}</span></p>`;
   });
 }
 
