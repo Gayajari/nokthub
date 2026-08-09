@@ -31,8 +31,6 @@ onAuthStateChanged(auth, (u) => {
 });
 
 // Aktifkan/nonaktifkan kotak komentar sesuai status login.
-// Sebelumnya textarea & tombol selalu aktif meski belum login (cuma placeholder
-// yang bilang "harus login"), jadi user abis login pun tampilannya gak berubah.
 function updateCommentBoxState() {
   const input = document.getElementById("comment-input");
   const btn = document.getElementById("btn-comment");
@@ -56,8 +54,7 @@ async function loadVideo() {
   videoData = { id: snap.id, ...snap.data() };
   renderVideoInfo();
   updateCommentBoxState();
-  // countView() dipindah, sekarang dipanggil dari trackResumePosition setelah nonton 10 detik
-  listenVideoStats(); // view/like update realtime tanpa reload
+  listenVideoStats();
   await loadRelated();
   listenComments();
   checkLikeState();
@@ -133,7 +130,7 @@ async function saveHistory(position) {
   }, { merge: true });
 }
 
-// ---------- View counting: 1 per akun/anon-id per jendela waktu, setelah nonton minimal N detik ----------
+// ---------- View counting ----------
 async function countView() {
   try {
     const anonId = getAnonId();
@@ -144,7 +141,7 @@ async function countView() {
     const now = Date.now();
     if (snap.exists()) {
       const last = snap.data().viewedAt?.toMillis?.() || 0;
-      if (now - last < VIEW_WINDOW_MS) return; // sudah dihitung dalam 5 menit terakhir
+      if (now - last < VIEW_WINDOW_MS) return;
     }
     await setDoc(ref, { videoId, uid: uidOrAnon, viewedAt: serverTimestamp() });
     await updateDoc(doc(db, "videos", videoId), { viewCount: increment(1) });
@@ -162,7 +159,7 @@ function getAnonId() {
   return id;
 }
 
-// ---------- Like video (toggle: klik lagi = batalkan like) ----------
+// ---------- Like video ----------
 async function checkLikeState() {
   const btn = document.getElementById("btn-like");
   if (!btn) return;
@@ -182,12 +179,10 @@ document.getElementById("btn-like").addEventListener("click", async () => {
     const likeRef = doc(db, "likes", `${videoId}_${currentUser.uid}`);
     const snap = await getDoc(likeRef);
     if (snap.exists()) {
-      // Sudah like -> klik lagi berarti batalkan (unlike)
       await deleteDoc(likeRef);
       await updateDoc(doc(db, "videos", videoId), { likeCount: increment(-1) });
       btn.classList.remove("is-active");
     } else {
-      // Belum like -> like baru
       await setDoc(likeRef, { videoId, uid: currentUser.uid });
       await updateDoc(doc(db, "videos", videoId), { likeCount: increment(1) });
       btn.classList.add("is-active");
@@ -253,16 +248,13 @@ async function loadRelated() {
 
 // ---------- Comments ----------
 let allComments = [];
-let userReactions = {}; // { commentId: "like" | "dislike" }, dimuat sekali per login/video
-let commentSortOrder = "desc"; // "desc" = terbaru dulu, "asc" = terlama dulu
-let commentDisplayLimit = 8; // jumlah komentar yang ditampilkan awal, nambah tiap klik "Muat lebih banyak"
+let userReactions = {};
+let commentSortOrder = "desc";
+let commentDisplayLimit = 8;
 const COMMENT_BATCH_SIZE = 8;
-let unsubscribeComments = null; // listener realtime komentar, diganti tiap kali sort order berubah
-const pendingReactions = new Set(); // id komentar yang lagi diproses reaksinya, cegah klik dobel sebelum selesai
+let unsubscribeComments = null;
+const pendingReactions = new Set();
 
-// Live listener: sekali dipasang, tiap ada komentar baru / like / dislike baru
-// (dari siapa pun, tanpa perlu reload) daftar komentar otomatis update sendiri —
-// sama seperti listenVideoStats() untuk view/like video.
 function listenComments() {
   if (unsubscribeComments) unsubscribeComments();
   const list = document.getElementById("comment-list");
@@ -282,9 +274,6 @@ function listenComments() {
 }
 window.addEventListener("beforeunload", () => { if (unsubscribeComments) unsubscribeComments(); });
 
-// Render ulang dari data yang sudah ada di memori (allComments) — dipanggil tiap
-// snapshot berubah maupun tiap klik "Muat lebih banyak", tanpa perlu fetch ulang
-// ke Firestore, jadi ringan.
 function renderCommentsList() {
   const list = document.getElementById("comment-list");
   const topLevel = allComments.filter(c => !c.parentId);
@@ -293,9 +282,6 @@ function renderCommentsList() {
   list.innerHTML = visible.map(c => renderComment(c, allComments)).join("")
     || `<p style="color:var(--text-muted)">Belum ada komentar. Jadilah yang pertama!</p>`;
 
-  // Tombol "Muat lebih banyak" — cuma muncul kalau masih ada komentar
-  // yang belum ditampilkan, biar halaman gak jadi panjang terus ke bawah
-  // sekaligus meski komentarnya ratusan.
   if (topLevel.length > commentDisplayLimit) {
     const sisa = topLevel.length - commentDisplayLimit;
     list.innerHTML += `
@@ -306,6 +292,12 @@ function renderCommentsList() {
 
   const countEl = document.getElementById("comment-count");
   if (countEl) countEl.textContent = `${topLevel.length} komentar`;
+
+  // Reposisi ulang kolom komentar kalau lagi zoom aktif dan daftar komentar
+  // baru saja berubah tinggi (misal abis kirim komentar baru).
+  if (commentZoomController && commentZoomController.isActive()) {
+    commentZoomController.reposition();
+  }
 }
 
 document.getElementById("comment-list").addEventListener("click", (e) => {
@@ -318,16 +310,14 @@ document.getElementById("comment-list").addEventListener("click", (e) => {
 document.querySelectorAll("#sort-newest, #sort-oldest").forEach(btn => {
   btn.addEventListener("click", () => {
     commentSortOrder = btn.dataset.sort;
-    commentDisplayLimit = COMMENT_BATCH_SIZE; // reset paging tiap ganti urutan
+    commentDisplayLimit = COMMENT_BATCH_SIZE;
     document.querySelectorAll("#sort-newest, #sort-oldest").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     listenComments();
   });
 });
-document.getElementById("sort-newest").classList.add("active"); // default: terbaru dulu
+document.getElementById("sort-newest").classList.add("active");
 
-// Ambil reaksi milik user saat ini untuk semua komentar, sekali per login/ganti video —
-// BUKAN tiap snapshot berubah, supaya gak boros pembacaan Firestore.
 async function loadUserReactions() {
   userReactions = {};
   if (!currentUser || !allComments.length) return;
@@ -368,6 +358,18 @@ function renderComment(c, all) {
     </div>`;
 }
 
+// ---------- Kirim komentar ----------
+// PENTING: tombol Kirim dipasangi "mousedown preventDefault" (lihat di bawah,
+// di dalam setupCommentFocusZoom) supaya textarea TIDAK blur duluan saat
+// tombol ini ditekan. Sebelumnya urutan kejadian saat user tap "Kirim" itu:
+//   1. mousedown di tombol -> browser pindahkan fokus -> textarea blur
+//   2. blur listener jalan -> deactivate() -> layout balik ke posisi awal
+//      (tombol Kirim ikut pindah posisi)
+//   3. click event baru mau nembak ke koordinat lama -> tombol udah gak
+//      ada di situ lagi -> klik "meleset", komentar gak terkirim
+//   4. user harus tap sekali lagi baru kekirim
+// Dengan preventDefault di mousedown, fokus TETAP di textarea selama proses
+// kirim, tombol gak ikut pindah, klik langsung kena -> sekali tap langsung kirim.
 document.getElementById("btn-comment").addEventListener("click", async () => {
   if (!currentUser) { window.location.href = "login.html"; return; }
   const input = document.getElementById("comment-input");
@@ -386,11 +388,15 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
       createdAt: serverTimestamp()
     });
     input.value = "";
-    // Tidak perlu panggil apa-apa lagi di sini — listener realtime (onSnapshot)
-    // otomatis nangkep komentar baru ini dan langsung merender ulang daftar.
+    // Baru sekarang tutup mode zoom & keyboard, SETELAH komentar sukses
+    // terkirim -> textarea di-blur manual, blur listener yang menutup
+    // overlay jalan seperti biasa, dan user langsung lihat komentar
+    // barunya di daftar (posisi udah balik normal).
+    input.blur();
   } catch (err) {
     console.error("Gagal mengirim komentar:", err.message);
     alert("Komentar gagal terkirim. Coba lagi sebentar lagi.\n(" + err.message + ")");
+    // Gagal kirim -> jangan ditutup, biarkan user coba lagi tanpa harus fokus ulang.
   } finally {
     btn.disabled = !currentUser;
     btn.textContent = "Kirim";
@@ -402,7 +408,6 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
   const delId = e.target.dataset.del;
   if (delId) {
     await deleteDoc(doc(db, "comments", delId));
-    // Tidak perlu loadComments() manual — listener realtime otomatis update.
     return;
   }
 
@@ -411,17 +416,16 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
     if (!currentUser) { window.location.href = "login.html"; return; }
 
     const cid = reactEl.dataset.cid;
-    const type = reactEl.dataset.react; // "like" atau "dislike" — yang baru diklik
-    if (pendingReactions.has(cid)) return; // masih ada proses jalan buat komentar ini, cegah klik dobel
+    const type = reactEl.dataset.react;
+    if (pendingReactions.has(cid)) return;
     pendingReactions.add(cid);
 
     const reactRef = doc(db, "comment_reactions", `${cid}_${currentUser.uid}`);
     const target = allComments.find(c => c.id === cid);
-    const prevType = userReactions[cid]; // reaksi sebelumnya: "like" | "dislike" | undefined
+    const prevType = userReactions[cid];
 
     try {
       if (prevType === type) {
-        // Klik reaksi yang sama lagi -> batalkan, jadi netral (gak like/dislike sama sekali)
         if (target) target[type === "like" ? "likeCount" : "dislikeCount"] =
           Math.max((target[type === "like" ? "likeCount" : "dislikeCount"] || 1) - 1, 0);
         delete userReactions[cid];
@@ -429,7 +433,6 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
         await deleteDoc(reactRef);
 
       } else if (prevType) {
-        // Sudah pernah react dengan tipe lain -> pindah (mis. dari like ke dislike)
         const oldField = prevType === "like" ? "likeCount" : "dislikeCount";
         const newField = type === "like" ? "likeCount" : "dislikeCount";
         if (target) {
@@ -442,7 +445,6 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
         await updateDoc(doc(db, "comments", cid), { [oldField]: increment(-1), [newField]: increment(1) });
 
       } else {
-        // Belum pernah react -> react baru
         const field = type === "like" ? "likeCount" : "dislikeCount";
         if (target) target[field] = (target[field] || 0) + 1;
         userReactions[cid] = type;
@@ -452,7 +454,6 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
       }
     } catch (err) {
       console.error("Gagal menyimpan reaksi komentar:", err.message);
-      // Gagal simpan — batalkan semua perubahan optimistic, balik ke kondisi semula
       if (prevType) userReactions[cid] = prevType; else delete userReactions[cid];
       renderCommentsList();
       alert("Gagal menyimpan reaksi. Coba lagi.");
@@ -463,19 +464,31 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
 });
 
 // ---------- Efek zoom kolom komentar ----------
-// Saat textarea komentar difokus: video (player) dipin di atas (gak ikut
-// scroll), area di antara video & kolom komentar (judul, stats, share,
-// desc, tags, judul "Komentar") di-collapse total, dan kolom komentar
-// jadi position:fixed pas di bawah video sambil zoom-in. Balik normal
-// otomatis begitu textarea kehilangan fokus (termasuk pas klik "Kirim").
-(function setupCommentFocusZoom() {
+// Perubahan dari versi sebelumnya:
+// 1. Sekarang ngikutin window.visualViewport (bukan cuma window.innerHeight),
+//    jadi posisi player & kolom komentar dihitung ulang tiap keyboard
+//    muncul/hilang/berubah tinggi -> gak ada lagi bagian yang ketutup
+//    keyboard atau nyempil di antara elemen lain.
+// 2. Kolom komentar dikasih max-height dinamis = sisa ruang yang beneran
+//    kelihatan (visualViewport.height dikurangi tinggi player+header),
+//    dan overflow-y:auto -> tombol "Kirim" dijamin selalu kelihatan
+//    walau keyboard tinggi (misal di HP dgn keyboard custom yang gede).
+// 3. activate/deactivate/reposition diekspos ke luar (commentZoomController)
+//    supaya bisa dipanggil manual dari luar (dipakai renderCommentsList()
+//    biar reposisi ulang tiap komentar baru masuk / daftar berubah tinggi).
+let commentZoomController = null;
+
+function setupCommentFocusZoom() {
   const box = document.querySelector(".comment-box");
   const input = document.getElementById("comment-input");
+  const btnSend = document.getElementById("btn-comment");
   const placeholder = document.getElementById("comment-box-placeholder");
   const playerPlaceholder = document.getElementById("player-placeholder");
   const col = document.getElementById("watch-col");
   const player = document.getElementById("player-container");
-  if (!box || !input || !placeholder || !playerPlaceholder || !col || !player) return;
+  if (!box || !input || !placeholder || !playerPlaceholder || !col || !player) return null;
+
+  let isActive = false;
 
   function getHeaderHeight() {
     const header = document.querySelector(".site-header");
@@ -485,25 +498,36 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
   function positionPinned() {
     const colRect = col.getBoundingClientRect();
     const headerH = getHeaderHeight();
+    const vv = window.visualViewport;
+    // offsetTop: seberapa jauh visual viewport "turun" dari layout viewport
+    // (kejadian di sebagian browser mobile saat keyboard muncul).
+    const vvOffsetTop = vv ? vv.offsetTop : 0;
+    const vvHeight = vv ? vv.height : window.innerHeight;
 
-    player.style.top = headerH + "px";
+    player.style.top = (headerH + vvOffsetTop) + "px";
     player.style.left = colRect.left + "px";
     player.style.width = colRect.width + "px";
 
     const playerHeightNow = player.getBoundingClientRect().height;
-    box.style.top = (headerH + playerHeightNow + 10) + "px";
+    const boxTop = headerH + playerHeightNow + 10;
+    box.style.top = (boxTop + vvOffsetTop) + "px";
     box.style.left = colRect.left + "px";
     box.style.width = colRect.width + "px";
+
+    // Sisa tinggi yang beneran kelihatan (di atas keyboard) buat kolom komentar,
+    // biar textarea + tombol Kirim gak pernah kepotong/ketutup keyboard.
+    const availableHeight = vvHeight - boxTop - 10;
+    box.style.maxHeight = Math.max(availableHeight, 140) + "px";
+    box.style.overflowY = "auto";
   }
 
   function activate() {
-    if (input.disabled) return; // belum login -> gak perlu efek apa-apa
-    if (box.classList.contains("is-focused")) return;
+    if (input.disabled) return;
+    if (isActive) return;
 
     const playerRectBefore = player.getBoundingClientRect();
     const boxRectBefore = box.getBoundingClientRect();
 
-    // Jaga tinggi ruang aslinya, biar konten di bawah gak "loncat"
     playerPlaceholder.style.height = playerRectBefore.height + "px";
     playerPlaceholder.style.display = "block";
     placeholder.style.height = boxRectBefore.height + "px";
@@ -514,31 +538,46 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
 
     positionPinned();
     box.classList.add("is-focused");
+    isActive = true;
 
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function deactivate() {
-    if (!box.classList.contains("is-focused")) return;
+    if (!isActive) return;
     box.classList.remove("is-focused");
     player.classList.remove("is-pinned");
     document.body.classList.remove("comment-focus-active");
 
-    box.style.top = box.style.left = box.style.width = "";
+    box.style.top = box.style.left = box.style.width = box.style.maxHeight = box.style.overflowY = "";
     player.style.top = player.style.left = player.style.width = "";
 
     placeholder.style.display = "none";
     playerPlaceholder.style.display = "none";
+    isActive = false;
   }
 
   input.addEventListener("focus", activate);
-  // blur otomatis kepicu juga saat klik tombol "Kirim" -> overlay langsung
-  // nutup dan user ketemu langsung komentar yang baru terkirim di daftar.
   input.addEventListener("blur", deactivate);
 
-  window.addEventListener("resize", () => {
-    if (box.classList.contains("is-focused")) positionPinned();
+  // Cegah tap di tombol "Kirim" bikin textarea blur duluan sebelum klik
+  // sempat diproses (ini akar masalah "harus tap 2x baru kekirim").
+  btnSend.addEventListener("mousedown", (e) => {
+    e.preventDefault();
   });
-})();
+
+  window.addEventListener("resize", () => { if (isActive) positionPinned(); });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", () => { if (isActive) positionPinned(); });
+    window.visualViewport.addEventListener("scroll", () => { if (isActive) positionPinned(); });
+  }
+
+  return {
+    activate, deactivate, reposition: positionPinned,
+    isActive: () => isActive
+  };
+}
+
+commentZoomController = setupCommentFocusZoom();
 
 loadVideo();
