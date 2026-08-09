@@ -7,7 +7,7 @@ import {
   onAuthStateChanged, onSnapshot
 } from "./firebase-config.js";
 import { renderPlayer, trackResumePosition } from "./player.js";
-import { escapeHtml, renderVideoCard } from "./app.js";
+import { escapeHtml, renderVideoCard, computePopularScore, buildThumbChain } from "./app.js";
 
 const params = new URLSearchParams(window.location.search);
 const videoId = params.get("id");
@@ -243,21 +243,150 @@ document.querySelectorAll("[data-share]").forEach(btn => {
 });
 
 // ---------- Related videos ----------
+// BASE ALGORITHM (dipertahankan): kandidat utama tetap dari query lama —
+// category == videoData.category, status == "publish". Query ini TIDAK diganti.
+//
+// PENYEMPURNAAN yang ditambahkan (kompatibel, bukan pengganti):
+//   1. Pool kandidat diperbesar jadi 24 (bukan langsung 6) sebagai bahan ranking & rotation.
+//   2. Fallback ke tag (array-contains-any) & video terbaru kalau kandidat kategori kurang
+//      (hanya jalan kalau kandidat memang kurang -- tidak ada query tambahan yang tidak perlu).
+//   3. Ranking relevansi: kategori cocok + overlap tag + computePopularScore (skor lama di
+//      app.js dipakai ulang, bukan bikin skor baru dari nol) + bonus kecil video baru.
+//   4. Rotation/exposure: 2 slot teratas = paling relevan (stabil, prioritas utama tetap
+//      dari algoritma lama). 4 slot sisanya dipilih weighted-random dari kandidat berikutnya,
+//      seed per sesi+video -> related tetap sama selama 1 kunjungan, berganti di kunjungan lain.
+//   5. Bebas duplikat & exclude video aktif dijaga di satu titik (Map "seen") sebelum masuk
+//      scoring/rotation, jadi tidak mungkin video yang sedang ditonton lolos ke slot manapun.
+const RELATED_SHOW_COUNT = 6;
+const RELATED_FIXED_TOP = 2;
+const RELATED_CANDIDATE_POOL = 24;
+let currentRelatedItems = [];
+
+function seededRandom(seedStr) {
+  let h = 1779033703 ^ seedStr.length;
+  for (let i = 0; i < seedStr.length; i++) {
+    h = Math.imul(h ^ seedStr.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  let seed = (h ^= h >>> 16) >>> 0;
+  return function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Token rotation per tab (sessionStorage) -> urutan konsisten selama sesi,
+// otomatis beda di sesi/kunjungan berikutnya.
+function getRotationSeed() {
+  let token = sessionStorage.getItem("nokt_related_rotation");
+  if (!token) {
+    token = Math.random().toString(36).slice(2);
+    sessionStorage.setItem("nokt_related_rotation", token);
+  }
+  return token;
+}
+
+function computeRelatedScore(candidate, current) {
+  const currentTags = new Set(current.tags || []);
+  const tagOverlap = (candidate.tags || []).filter(t => currentTags.has(t)).length;
+  const sameCategory = current.category && candidate.category === current.category ? 1 : 0;
+  const ageDays = candidate.uploadedAt?.seconds
+    ? (Date.now() / 1000 - candidate.uploadedAt.seconds) / 86400 : 999;
+  const recencyBonus = Math.max(0, 20 - ageDays) * 0.5;
+  return (sameCategory * 50) + (tagOverlap * 30) + computePopularScore(candidate) + recencyBonus;
+}
+
+// Weighted random tanpa pengembalian -- skor tinggi lebih besar peluangnya
+// terpilih, tapi bukan mutlak. Di sinilah "exposure" video lain terjadi.
+function weightedPickWithoutReplacement(items, count, rng) {
+  const pool = items.map(v => ({ v, w: Math.max(v.__relatedScore, 0.01) }));
+  const picked = [];
+  while (picked.length < count && pool.length) {
+    const total = pool.reduce((s, x) => s + x.w, 0);
+    let r = rng() * total, i = 0;
+    for (; i < pool.length; i++) { r -= pool[i].w; if (r <= 0) break; }
+    const idx = Math.min(i, pool.length - 1);
+    picked.push(pool[idx].v);
+    pool.splice(idx, 1);
+  }
+  return picked;
+}
+
+async function fetchRelatedCandidates() {
+  const seen = new Map();
+  const addAll = (arr) => arr.forEach(d => { if (d.id !== videoId && !seen.has(d.id)) seen.set(d.id, d); });
+
+  // 1) QUERY LAMA (dipertahankan apa adanya): kategori sama.
+  if (videoData.category) {
+    const qCategory = query(
+      collection(db, "videos"),
+      where("status", "==", "publish"),
+      where("category", "==", videoData.category),
+      limit(RELATED_CANDIDATE_POOL)
+    );
+    addAll((await getDocs(qCategory)).docs.map(d => ({ id: d.id, ...d.data() })));
+  }
+
+  // 2) FALLBACK tag (dipakai hanya kalau kandidat dari kategori masih kurang)
+  // CATATAN: query ini butuh composite index baru di Firestore
+  // (status == + tags array-contains-any). Kalau muncul error index saat
+  // testing, klik link yang diberikan Firestore di console untuk membuatnya.
+  if (seen.size < RELATED_CANDIDATE_POOL && (videoData.tags || []).length) {
+    const qTags = query(
+      collection(db, "videos"),
+      where("status", "==", "publish"),
+      where("tags", "array-contains-any", videoData.tags.slice(0, 10)),
+      limit(RELATED_CANDIDATE_POOL)
+    );
+    addAll((await getDocs(qTags)).docs.map(d => ({ id: d.id, ...d.data() })));
+  }
+
+  // 3) FALLBACK video terbaru (hanya kalau kandidat masih kurang dari jumlah tampil)
+  if (seen.size < RELATED_SHOW_COUNT) {
+    const qFallback = query(
+      collection(db, "videos"),
+      where("status", "==", "publish"),
+      orderBy("uploadedAt", "desc"),
+      limit(RELATED_CANDIDATE_POOL)
+    );
+    addAll((await getDocs(qFallback)).docs.map(d => ({ id: d.id, ...d.data() })));
+  }
+
+  return [...seen.values()];
+}
+
+window.__nokthubRelatedThumbFallback = function (imgEl, id) {
+  const v = currentRelatedItems.find(x => x.id === id);
+  if (!v) { imgEl.src = 'https://via.placeholder.com/320x180/141416/9A9A9E?text=No+Image'; return; }
+  const chain = buildThumbChain(v);
+  const step = parseInt(imgEl.dataset.fallbackStep || "0", 10) + 1;
+  if (chain[step]) { imgEl.dataset.fallbackStep = step; imgEl.src = chain[step]; }
+};
+
 async function loadRelated() {
   const wrap = document.getElementById("related-list");
-  const q = query(
-    collection(db, "videos"),
-    where("status", "==", "publish"),
-    where("category", "==", videoData.category || ""),
-    limit(6)
+  const candidates = await fetchRelatedCandidates();
+  candidates.forEach(v => { v.__relatedScore = computeRelatedScore(v, videoData); });
+  candidates.sort((a, b) => b.__relatedScore - a.__relatedScore);
+
+  // Slot 1-2: hasil algoritma relevansi existing, dipertahankan apa adanya.
+  const fixedTop = candidates.slice(0, RELATED_FIXED_TOP);
+  // Slot 3 dst: rotation/exposure bergilir dari sisa kandidat.
+  const rotationPool = candidates.slice(RELATED_FIXED_TOP);
+  const rng = seededRandom(getRotationSeed() + "_" + videoId);
+  const rotationPicks = weightedPickWithoutReplacement(
+    rotationPool, Math.max(RELATED_SHOW_COUNT - fixedTop.length, 0), rng
   );
-  const snap = await getDocs(q);
-  const items = snap.docs
-    .map(d => ({ id: d.id, ...d.data() }))
-    .filter(v => v.id !== videoId);
-  wrap.innerHTML = items.map(v => `
+
+  currentRelatedItems = [...fixedTop, ...rotationPicks].slice(0, RELATED_SHOW_COUNT);
+
+  wrap.innerHTML = currentRelatedItems.map(v => `
     <a href="watch.html?id=${v.id}" style="display:flex;gap:10px;text-decoration:none;color:inherit">
-      <img src="${v.thumbnail}" style="width:120px;aspect-ratio:16/9;object-fit:cover;border-radius:6px" loading="lazy">
+      <img src="${buildThumbChain(v)[0]}" data-fallback-step="0"
+           onerror="window.__nokthubRelatedThumbFallback(this, '${v.id}')"
+           style="width:120px;aspect-ratio:16/9;object-fit:cover;border-radius:6px" loading="lazy">
       <div>
         <div style="font-size:.85rem;font-weight:600;line-height:1.3">${escapeHtml(v.title)}</div>
         <div style="font-size:.72rem;color:var(--text-muted)">${(v.viewCount||0).toLocaleString('id-ID')} view</div>
