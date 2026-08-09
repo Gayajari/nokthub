@@ -11,7 +11,8 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import {
   getAuth, GoogleAuthProvider, onAuthStateChanged,
   signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  signOut, sendPasswordResetEmail, sendEmailVerification, updateProfile
+  signOut, sendPasswordResetEmail, sendEmailVerification, updateProfile,
+  setPersistence, browserLocalPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc,
@@ -38,6 +39,7 @@ export {
   onAuthStateChanged, signInWithPopup, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, sendPasswordResetEmail,
   sendEmailVerification, updateProfile,
+  setPersistence, browserLocalPersistence, browserSessionPersistence,
   collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc,
   query, where, orderBy, limit, startAfter, onSnapshot,
   increment, serverTimestamp, Timestamp
