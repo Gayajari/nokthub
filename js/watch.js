@@ -425,6 +425,7 @@ function listenComments() {
   });
 }
 window.addEventListener("beforeunload", () => { if (unsubscribeComments) unsubscribeComments(); });
+window.addEventListener("beforeunload", () => { stopPreviewRotation(); }); // pastikan timer rotation ikut dibersihkan
 
 function renderCommentsList() {
   const list = document.getElementById("comment-list");
@@ -988,7 +989,15 @@ function injectCommentToggleStyles() {
     .comment-expand-content.is-open{opacity:1}
     @keyframes nokt-comment-pulse{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
     .comment-toggle-header.pulse #comment-count,
+    .comment-toggle-header.pulse #comment-count-header,
     .comment-toggle-header.pulse .comment-preview{animation: nokt-comment-pulse 1.3s ease 1}
+
+    /* ---- Comment Preview Rotation (mini hero slider) ----
+       Transisi ringan (fade + slide 4px), TIDAK mengubah tinggi container
+       -- .comment-preview sudah dibatasi -webkit-line-clamp:2 di atas,
+       jadi tinggi tetap stabil walau isi teks beda panjang. */
+    .comment-preview{transition:opacity .2s ease, transform .2s ease}
+    .comment-preview.preview-rotating{opacity:0;transform:translateY(-4px)}
   `;
   document.head.appendChild(style);
 }
@@ -1009,28 +1018,129 @@ let commentSectionExpanded = false;
 let lastKnownCommentCount = null;
 let syncCommentExpandHeight = null; // di-assign di dalam IIFE setup, dipanggil dari renderCommentsList()
 
-// Update jumlah komentar (akurat, dari data asli) + preview 1 komentar
-// terbaru saat collapsed + micro-interaction singkat (±1.3 detik, bukan
-// animasi terus-menerus) saat jumlah bertambah dibanding sebelumnya.
+// ============================================================
+// Comment Preview Rotation -- "mini hero slider" untuk preview saat
+// collapsed. PENYEMPURNAAN UI murni: tidak ada query/listener Firestore
+// baru, semua kandidat diambil dari `allComments` yang sudah tersedia
+// lewat listenComments() existing. Rotation cuma jalan saat collapsed,
+// berhenti total saat section dibuka, dan cuma ada SATU timer aktif
+// sepanjang waktu (dijaga lewat guard `if (!previewTimer)` di
+// updateCommentToggleHeader + stopPreviewRotation() sebelum start ulang).
+// ============================================================
+let previewCandidates = [];      // komentar top-level, terbaru dulu -- sumber rotasi
+let previewCommentId = null;     // id komentar yang SEDANG tampil di preview
+let previewTimer = null;         // satu-satunya timer rotation yang boleh aktif
+const PREVIEW_ROTATE_MS = 3500;  // ~3.5 detik, sesuai rentang 3-4 detik di spec
+
+// Urutan dasar kandidat: terbaru dulu (index 0), supaya preview PERTAMA
+// yang tampil tetap komentar terbaru -- ini cuma urutan tampilan preview,
+// TIDAK menyentuh commentSortOrder (Terbaru/Terlama) punya daftar komentar
+// utuh, yang tetap dikendalikan terpisah seperti semula.
+function buildPreviewCandidates(topLevel) {
+  return [...topLevel].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+}
+
+// Render satu komentar ke kotak preview. `animate=false` dipakai untuk
+// tampilan pertama kali (langsung, tanpa fade) -- fade hanya dipakai saat
+// benar-benar berganti index lewat rotation.
+function renderCommentPreview(comment, animate) {
+  const previewEl = document.getElementById("comment-preview");
+  if (!previewEl || !comment) return;
+  const html = `"${escapeHtml(comment.text)}"<br><span style="font-weight:600">${escapeHtml(comment.userName || 'User')}</span> · ${formatCommentDate(comment.createdAt)}`;
+  if (animate === false) {
+    previewEl.innerHTML = html;
+    return;
+  }
+  previewEl.classList.add("preview-rotating");
+  setTimeout(() => {
+    previewEl.innerHTML = html;
+    previewEl.classList.remove("preview-rotating");
+  }, 200);
+}
+
+function stopPreviewRotation() {
+  if (previewTimer) { clearInterval(previewTimer); previewTimer = null; }
+}
+
+// PENCEGAHAN MULTIPLE TIMER: selalu stop dulu sebelum start, jadi tidak
+// mungkin ada 2 interval jalan bersamaan walau fungsi ini kepanggil
+// berkali-kali (misal karena listenComments() nembak beberapa kali).
+function startPreviewRotation() {
+  stopPreviewRotation();
+  if (commentSectionExpanded) return;           // jangan jalan saat komentar terbuka
+  if (previewCandidates.length < 2) return;      // 0-1 komentar -> tidak perlu rotasi
+
+  previewTimer = setInterval(() => {
+    // Guard tambahan di dalam timer -- kalau section sempat dibuka atau
+    // kandidat berkurang jadi <2 SETELAH timer jalan, hentikan diri sendiri.
+    if (commentSectionExpanded || previewCandidates.length < 2) {
+      stopPreviewRotation();
+      return;
+    }
+    const idx = previewCandidates.findIndex(c => c.id === previewCommentId);
+    const nextIdx = (idx + 1) % previewCandidates.length; // round-robin, gak ada duplikat sampai semua kebagian giliran
+    const next = previewCandidates[nextIdx];
+    previewCommentId = next.id;
+    renderCommentPreview(next, true);
+  }, PREVIEW_ROTATE_MS);
+}
+
+// Update jumlah komentar (akurat, dari data asli) + preview komentar
+// (dengan rotation kalau 2+) saat collapsed + micro-interaction singkat
+// (±1.3 detik, bukan animasi terus-menerus) saat jumlah bertambah
+// dibanding sebelumnya.
+//
+// FIX (sebelumnya): fungsi ini cuma nulis ke #comment-count (elemen ASLI
+// yang sudah dipindah paksa ke header). Sekarang #comment-count TETAP di
+// tempat asalnya (baris bareng tombol sort, tidak dipindah lagi -- lihat
+// setupCollapsibleCommentsSection di bawah), dan ditambahkan
+// #comment-count-header sebagai salinan tampilan KHUSUS untuk area header
+// collapse. Dua-duanya disinkronkan angkanya di sini; header-nya saja yang
+// disembunyikan saat expanded.
 function updateCommentToggleHeader(topLevel) {
   const countEl = document.getElementById("comment-count");
+  const headerCountEl = document.getElementById("comment-count-header");
   const previewEl = document.getElementById("comment-preview");
   const headerEl = document.getElementById("comment-toggle-header");
   if (!countEl) return;
 
   const count = topLevel.length;
-  countEl.textContent = `${count} komentar`;
+  const countText = `${count} komentar`;
+  countEl.textContent = countText;
+
+  if (headerCountEl) {
+    headerCountEl.textContent = countText;
+    // Cuma tampil saat collapsed -- saat expanded, angka asli di baris
+    // sort (countEl) yang kelihatan, jadi tidak dobel.
+    headerCountEl.style.display = commentSectionExpanded ? "none" : "";
+  }
 
   if (previewEl) {
     if (count > 0 && !commentSectionExpanded) {
-      const newest = getNewestTopLevelComment(topLevel);
       previewEl.style.display = "";
-      previewEl.innerHTML = newest
-        ? `"${escapeHtml(newest.text)}"<br><span style="font-weight:600">${escapeHtml(newest.userName || 'User')}</span> · ${formatCommentDate(newest.createdAt)}`
-        : "";
+      previewCandidates = buildPreviewCandidates(topLevel);
+
+      // Kalau komentar yg lagi tampil sudah gak ada di daftar kandidat
+      // (baru pertama kali render, atau komentar itu dihapus) -> tampilkan
+      // yang terbaru (index 0) langsung tanpa animasi fade.
+      const stillExists = previewCandidates.some(c => c.id === previewCommentId);
+      if (!stillExists) {
+        previewCommentId = previewCandidates[0].id;
+        renderCommentPreview(previewCandidates[0], false);
+      }
+
+      // Rotation cuma di-(re)start kalau memang belum ada timer jalan --
+      // supaya listener realtime yang nembak berkali-kali (like/dislike,
+      // komentar baru dari user lain) TIDAK reset countdown tiap saat.
+      if (previewCandidates.length >= 2) {
+        if (!previewTimer) startPreviewRotation();
+      } else {
+        stopPreviewRotation();
+      }
     } else {
       previewEl.style.display = "none";
       previewEl.innerHTML = "";
+      stopPreviewRotation(); // HENTIKAN rotation total saat komentar 0 atau section terbuka
     }
   }
 
@@ -1053,13 +1163,34 @@ function updateCommentToggleHeader(topLevel) {
   const sortOldest = document.getElementById("sort-oldest");
   const list = document.getElementById("comment-list");
   const countEl = document.getElementById("comment-count");
+
+  // FIX UTAMA: sebelumnya sortNewest & sortOldest diambil SATU-SATU lalu
+  // masing-masing dipindah jadi children langsung contentWrap. Ini merusak
+  // baris pembungkus aslinya di HTML:
+  //   <div style="display:flex;justify-content:space-between;...">
+  //     <span id="comment-count">...</span>
+  //     <div style="display:flex;gap:6px">
+  //       <button id="sort-newest">Terbaru</button>
+  //       <button id="sort-oldest">Terlama</button>
+  //     </div>
+  //   </div>
+  // Div pembungkus itu ditinggal kosong, dan tombol Kirim (dari .comment-box,
+  // yang tetap di posisinya) jadi nempel langsung ke tombol Terbaru tanpa
+  // jarak -- itulah yang menyebabkan Kirim numpuk ke Terbaru/Terlama.
+  //
+  // Sekarang seluruh BARIS itu (sortRow = pembungkus terluar berisi
+  // comment-count + sort buttons) dipindah UTUH sebagai satu unit, jadi
+  // "justify-content:space-between" dan spacing aslinya tetap berlaku persis
+  // seperti semula -- tidak ada elemen yang dicerai-beraikan.
+  const sortRow = sortNewest ? sortNewest.parentElement.parentElement : null;
+
   if (!heading || !list) return;
 
   injectCommentToggleStyles();
 
   // ---- Header gabungan: heading + jumlah + preview, jadi SATU area yang
   // full-nya bisa diklik/tap (bukan cuma teks "Komentar"). Elemen asli
-  // (heading, comment-count) DIPINDAH ke dalam wrapper ini, tidak diganti. ----
+  // (heading) DIPINDAH ke dalam wrapper ini, tidak diganti. ----
   const headerWrap = document.createElement("div");
   headerWrap.id = "comment-toggle-header";
   headerWrap.className = "comment-toggle-header";
@@ -1079,7 +1210,16 @@ function updateCommentToggleHeader(topLevel) {
   headingRow.appendChild(arrow);
   headerWrap.appendChild(headingRow);
 
-  if (countEl) headerWrap.appendChild(countEl);
+  // FIX: dulu #comment-count (elemen ASLI, yang juga dipakai di baris
+  // sort) ditarik paksa ke sini lewat headerWrap.appendChild(countEl) --
+  // itu yang bikin baris count+sort di bawah kehilangan elemennya. Sekarang
+  // dibuat SPAN BARU khusus buat preview di header (angkanya disinkronkan
+  // di updateCommentToggleHeader), sementara #comment-count asli TETAP di
+  // dalam sortRow, tidak dipindah sama sekali.
+  const headerCountEl = document.createElement("span");
+  headerCountEl.id = "comment-count-header";
+  headerCountEl.style.cssText = "font-size:.8rem;color:var(--text-muted)";
+  headerWrap.appendChild(headerCountEl);
 
   const previewEl = document.createElement("div");
   previewEl.id = "comment-preview";
@@ -1087,14 +1227,18 @@ function updateCommentToggleHeader(topLevel) {
   previewEl.style.display = "none";
   headerWrap.appendChild(previewEl);
 
-  // ---- Wrapper konten yang di-toggle (input, tombol sort, daftar
+  // ---- Wrapper konten yang di-toggle (input, baris count+sort, daftar
   // komentar) supaya bisa dianimasikan smooth SEKALIGUS, tanpa mengubah
-  // elemen aslinya (cuma dipindah ke dalam wrapper, urutan dipertahankan). ----
+  // elemen aslinya (cuma dipindah ke dalam wrapper, urutan & struktur
+  // internalnya dipertahankan utuh). ----
   const contentWrap = document.createElement("div");
   contentWrap.id = "comment-expand-content";
   contentWrap.className = "comment-expand-content";
-  list.parentNode.insertBefore(contentWrap, box || sortNewest || list);
-  [box, sortNewest, sortOldest, list].forEach(el => { if (el) contentWrap.appendChild(el); });
+  list.parentNode.insertBefore(contentWrap, box || sortRow || list);
+  // FIX: sortRow (satu baris utuh count+sort) yang dipindah, bukan
+  // sortNewest/sortOldest satu-satu -- struktur flex/space-between aslinya
+  // jadi tetap sama persis seperti di HTML.
+  [box, sortRow, list].forEach(el => { if (el) contentWrap.appendChild(el); });
 
   function applyState(expanded, animate) {
     commentSectionExpanded = expanded;
