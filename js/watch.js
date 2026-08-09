@@ -80,18 +80,36 @@ function renderVideoInfo() {
   });
 
   document.getElementById("video-title").textContent = v.title;
+
   const descEl = document.getElementById("video-desc");
-  descEl.textContent = v.description || "";
-  // Sembunyikan total elemen deskripsi kalau videonya emang gak ada deskripsi,
-  // biar gak nyisain ruang kosong percuma di antara tombol share & tags.
-  descEl.style.display = v.description ? "" : "none";
+  if (v.description) {
+    descEl.style.display = "";
+    setupCollapsibleDescription(descEl, v.description);
+  } else {
+    // Gak ada deskripsi -> sembunyikan total, gak nyisain ruang kosong.
+    descEl.style.display = "none";
+    descEl.textContent = "";
+    const oldToggle = document.getElementById("btn-toggle-desc");
+    if (oldToggle) oldToggle.remove();
+  }
+
   document.getElementById("stat-views").textContent = `${(v.viewCount||0).toLocaleString('id-ID')} view`;
   document.getElementById("stat-likes").textContent = `${(v.likeCount||0).toLocaleString('id-ID')} like`;
   document.getElementById("stat-date").textContent = v.uploadedAt?.toDate
     ? v.uploadedAt.toDate().toLocaleDateString('id-ID') : "";
 
-  document.getElementById("video-category").innerHTML =
-    `<a class="cat-chip" href="category.html?c=${encodeURIComponent(v.category||'')}">${escapeHtml(v.category||'-')}</a>`;
+  const catEl = document.getElementById("video-category");
+  if (v.category) {
+    // "-" placeholder dibuang -- chip kategori cuma dimunculkan kalau
+    // videonya emang punya kategori. Sebelumnya chip kosong isi "-" tetap
+    // dirender dan makan tempat padahal gak berguna sama sekali.
+    catEl.innerHTML = `<a class="cat-chip" href="category.html?c=${encodeURIComponent(v.category)}">${escapeHtml(v.category)}</a>`;
+    catEl.style.display = "";
+  } else {
+    catEl.innerHTML = "";
+    catEl.style.display = "none";
+  }
+
   document.getElementById("video-tags").innerHTML = (v.tags||[])
     .map(t => `<a class="tag-chip" href="tag.html?t=${encodeURIComponent(t)}">#${escapeHtml(t)}</a>`).join("");
 
@@ -632,6 +650,96 @@ function autoGrowTextarea(el) {
     list.style.setProperty("max-height", COMMENT_LIST_MAX_H, "important");
     list.style.setProperty("overflow-y", "auto", "important");
   }
+})();
+
+// ---------- Deskripsi ringkas dengan toggle "Selengkapnya" ----------
+// Sebelumnya deskripsi ditampilkan penuh apa adanya -> kalau panjang,
+// makan banyak tempat sebelum user sempat lihat Video Terkait. Sekarang
+// dipotong 2 baris by default (mirip caption IG/YouTube), ada tombol kecil
+// "Selengkapnya" buat yang mau baca penuh -- jadi deskripsi jadi elemen
+// kecil/gak dominan, bukan blok besar yang mendorong konten lain ke bawah.
+function setupCollapsibleDescription(descEl, fullText) {
+  descEl.textContent = fullText;
+  descEl.style.setProperty("display", "-webkit-box", "important");
+  descEl.style.setProperty("-webkit-box-orient", "vertical", "important");
+  descEl.style.setProperty("-webkit-line-clamp", "2", "important");
+  descEl.style.setProperty("overflow", "hidden", "important");
+
+  const old = document.getElementById("btn-toggle-desc");
+  if (old) old.remove();
+
+  // Cuma perlu tombol toggle kalau teksnya emang panjang (kira-kira gak
+  // muat di 2 baris) -- deskripsi pendek langsung tampil penuh tanpa tombol.
+  if (fullText.length <= 90) return;
+
+  const toggle = document.createElement("span");
+  toggle.id = "btn-toggle-desc";
+  toggle.textContent = "Selengkapnya";
+  toggle.style.cssText =
+    "display:inline-block;margin-top:4px;font-size:.78rem;font-weight:600;color:var(--accent,#ff7a00);cursor:pointer";
+  descEl.insertAdjacentElement("afterend", toggle);
+
+  let expanded = false;
+  toggle.addEventListener("click", () => {
+    expanded = !expanded;
+    if (expanded) {
+      descEl.style.setProperty("-webkit-line-clamp", "unset", "important");
+      descEl.style.setProperty("overflow", "visible", "important");
+      toggle.textContent = "Tutup";
+    } else {
+      descEl.style.setProperty("-webkit-line-clamp", "2", "important");
+      descEl.style.setProperty("overflow", "hidden", "important");
+      toggle.textContent = "Selengkapnya";
+    }
+  });
+}
+
+// ---------- Section Komentar: tertutup by default ----------
+// Poin dari user: yang penting itu VIDEO dan VIDEO TERKAIT (biar orang
+// lanjut nonton), bukan komentar. Jadi begitu halaman dibuka, seluruh isi
+// komentar (kotak tulis, tombol kirim, sort, daftar komentar) disembunyikan
+// dulu di balik satu baris ringkas "X komentar ▾" yang bisa di-tap buat
+// buka kalau user memang mau baca -- persis kayak "Lihat X balasan" di
+// kebanyakan app sosial. Ini bikin jarak dari video sampai Video Terkait
+// jadi pendek, gak peduli section komentar sebenarnya seberapa besar.
+(function setupCollapsibleCommentsSection() {
+  const countEl = document.getElementById("comment-count");
+  const box = document.querySelector(".comment-box");
+  const sortNewest = document.getElementById("sort-newest");
+  const sortOldest = document.getElementById("sort-oldest");
+  const list = document.getElementById("comment-list");
+  if (!countEl || !list) return;
+
+  let expanded = false;
+
+  const wrap = document.createElement("button");
+  wrap.type = "button";
+  wrap.id = "btn-toggle-comments";
+  wrap.style.cssText =
+    "display:flex;align-items:center;gap:8px;background:none;border:none;color:inherit;font:inherit;font-weight:600;cursor:pointer;padding:8px 0;width:100%;text-align:left";
+  countEl.parentNode.insertBefore(wrap, countEl);
+  wrap.appendChild(countEl);
+
+  const arrow = document.createElement("span");
+  arrow.textContent = "▾";
+  arrow.style.transition = "transform .15s";
+  wrap.appendChild(arrow);
+
+  function applyState() {
+    const val = expanded ? "" : "none";
+    if (box) box.style.setProperty("display", val, "important");
+    if (sortNewest) sortNewest.style.setProperty("display", val, "important");
+    if (sortOldest) sortOldest.style.setProperty("display", val, "important");
+    list.style.setProperty("display", val, "important");
+    arrow.style.transform = expanded ? "rotate(180deg)" : "rotate(0deg)";
+  }
+
+  wrap.addEventListener("click", () => {
+    expanded = !expanded;
+    applyState();
+  });
+
+  applyState(); // mulai tertutup
 })();
 
 loadVideo();
