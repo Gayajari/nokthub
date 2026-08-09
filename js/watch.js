@@ -442,14 +442,21 @@ function renderCommentsList() {
       </button>`;
   }
 
-  const countEl = document.getElementById("comment-count");
-  if (countEl) countEl.textContent = `${topLevel.length} komentar`;
+  // Comment count & preview: reuse topLevel yang sudah dihitung di atas,
+  // TIDAK ada query tambahan ke Firestore.
+  updateCommentToggleHeader(topLevel);
 
   // Reposisi ulang kolom komentar kalau lagi zoom aktif dan daftar komentar
   // baru saja berubah tinggi (misal abis kirim komentar baru).
   if (commentZoomController && commentZoomController.isActive()) {
     commentZoomController.reposition();
   }
+
+  // Kalau sedang expanded, konten tingginya mungkin berubah (komentar baru,
+  // reply baru dibuka, dst) -- sinkronkan ulang max-height wrapper supaya
+  // tidak ada bagian yang terpotong. Aman dipanggil walau belum expanded
+  // karena fungsi ini no-op saat collapsed.
+  if (typeof syncCommentExpandHeight === "function") syncCommentExpandHeight();
 }
 
 document.getElementById("comment-list").addEventListener("click", (e) => {
@@ -937,7 +944,21 @@ function setupCollapsibleDescription(descEl, fullText) {
   });
 }
 
-// ---------- Section Komentar: tertutup by default ----------
+// ============================================================
+// Section Komentar — collapsed default, full-area toggle, preview,
+// micro-interaction, animasi halus, accessibility.
+// ============================================================
+// PENYEMPURNAAN atas sistem existing, BUKAN sistem baru:
+//  - comment count & preview: reuse `topLevel` yang sudah dihitung di
+//    renderCommentsList() -- tidak ada query Firestore tambahan.
+//  - realtime: tetap pakai listenComments() / onSnapshot yang sudah ada,
+//    tidak ada listener kedua; fungsi di sini hanya dipanggil dari
+//    renderCommentsList() yang sudah jadi satu-satunya "sumber render".
+//  - Like/Dislike/Reply/sorting/pagination: TIDAK disentuh sama sekali.
+//  - Video Terkait: berada di container terpisah (#related-list) di luar
+//    wrapper toggle ini, tidak ikut dianimasikan/collapse.
+// ============================================================
+
 function findCommentHeading() {
   const headingTags = document.querySelectorAll("h1,h2,h3,h4,h5,h6");
   for (const el of headingTags) {
@@ -950,43 +971,192 @@ function findCommentHeading() {
   return null;
 }
 
+function injectCommentToggleStyles() {
+  if (document.getElementById("nokt-comment-toggle-style")) return;
+  const style = document.createElement("style");
+  style.id = "nokt-comment-toggle-style";
+  style.textContent = `
+    .comment-toggle-header{cursor:pointer;user-select:none;display:flex;flex-direction:column;gap:2px;padding:4px 0}
+    .comment-toggle-header:focus-visible{outline:2px solid var(--accent,#ff7a00);outline-offset:2px;border-radius:4px}
+    .comment-toggle-heading-row{display:flex;align-items:center;gap:8px}
+    .comment-toggle-arrow{font-size:.7em;transition:transform .2s ease;display:inline-block}
+    .comment-preview{font-size:.78rem;line-height:1.35;color:var(--text-muted);max-width:100%;
+      overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;
+      -webkit-box-orient:vertical;overflow-wrap:anywhere;word-break:break-word;margin-top:2px}
+    .comment-expand-content{overflow:hidden;max-height:0;opacity:0;
+      transition:max-height .28s ease, opacity .22s ease}
+    .comment-expand-content.is-open{opacity:1}
+    @keyframes nokt-comment-pulse{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
+    .comment-toggle-header.pulse #comment-count,
+    .comment-toggle-header.pulse .comment-preview{animation: nokt-comment-pulse 1.3s ease 1}
+  `;
+  document.head.appendChild(style);
+}
+
+// Komentar top-level TERBARU untuk preview -- selalu berdasarkan createdAt
+// asli, terlepas dari sorting Terbaru/Terlama yang sedang dipilih user
+// untuk daftar komentar (preview harus tetap konsisten, sesuai spesifikasi).
+function getNewestTopLevelComment(topLevel) {
+  if (!topLevel.length) return null;
+  return topLevel.reduce((newest, c) => {
+    const t = c.createdAt?.seconds || 0;
+    const nt = newest.createdAt?.seconds || 0;
+    return t > nt ? c : newest;
+  });
+}
+
+let commentSectionExpanded = false;
+let lastKnownCommentCount = null;
+let syncCommentExpandHeight = null; // di-assign di dalam IIFE setup, dipanggil dari renderCommentsList()
+
+// Update jumlah komentar (akurat, dari data asli) + preview 1 komentar
+// terbaru saat collapsed + micro-interaction singkat (±1.3 detik, bukan
+// animasi terus-menerus) saat jumlah bertambah dibanding sebelumnya.
+function updateCommentToggleHeader(topLevel) {
+  const countEl = document.getElementById("comment-count");
+  const previewEl = document.getElementById("comment-preview");
+  const headerEl = document.getElementById("comment-toggle-header");
+  if (!countEl) return;
+
+  const count = topLevel.length;
+  countEl.textContent = `${count} komentar`;
+
+  if (previewEl) {
+    if (count > 0 && !commentSectionExpanded) {
+      const newest = getNewestTopLevelComment(topLevel);
+      previewEl.style.display = "";
+      previewEl.innerHTML = newest
+        ? `"${escapeHtml(newest.text)}"<br><span style="font-weight:600">${escapeHtml(newest.userName || 'User')}</span> · ${formatCommentDate(newest.createdAt)}`
+        : "";
+    } else {
+      previewEl.style.display = "none";
+      previewEl.innerHTML = "";
+    }
+  }
+
+  // Hint interaktif ringan: hanya jalan kalau count NAIK dibanding nilai
+  // terakhir yang diketahui (bukan saat load pertama kali), dan berhenti
+  // sendiri setelah ±1.3 detik -- tidak pernah berulang terus-menerus.
+  if (headerEl && lastKnownCommentCount !== null && count > lastKnownCommentCount) {
+    headerEl.classList.remove("pulse");
+    void headerEl.offsetWidth; // paksa reflow supaya animasi bisa restart kalau beruntun
+    headerEl.classList.add("pulse");
+    setTimeout(() => headerEl.classList.remove("pulse"), 1400);
+  }
+  lastKnownCommentCount = count;
+}
+
 (function setupCollapsibleCommentsSection() {
   const heading = findCommentHeading();
   const box = document.querySelector(".comment-box");
   const sortNewest = document.getElementById("sort-newest");
   const sortOldest = document.getElementById("sort-oldest");
   const list = document.getElementById("comment-list");
+  const countEl = document.getElementById("comment-count");
   if (!heading || !list) return;
 
-  let expanded = false;
+  injectCommentToggleStyles();
 
-  heading.style.setProperty("cursor", "pointer", "important");
-  heading.style.setProperty("user-select", "none", "important");
-  heading.style.setProperty("display", "flex", "important");
-  heading.style.setProperty("align-items", "center", "important");
-  heading.style.setProperty("gap", "8px", "important");
+  // ---- Header gabungan: heading + jumlah + preview, jadi SATU area yang
+  // full-nya bisa diklik/tap (bukan cuma teks "Komentar"). Elemen asli
+  // (heading, comment-count) DIPINDAH ke dalam wrapper ini, tidak diganti. ----
+  const headerWrap = document.createElement("div");
+  headerWrap.id = "comment-toggle-header";
+  headerWrap.className = "comment-toggle-header";
+  headerWrap.setAttribute("role", "button");
+  headerWrap.setAttribute("tabindex", "0");
+  headerWrap.setAttribute("aria-expanded", "false");
+  headerWrap.setAttribute("aria-controls", "comment-expand-content");
+
+  const headingRow = document.createElement("div");
+  headingRow.className = "comment-toggle-heading-row";
+  heading.parentNode.insertBefore(headerWrap, heading);
+  headingRow.appendChild(heading);
 
   const arrow = document.createElement("span");
+  arrow.className = "comment-toggle-arrow";
   arrow.textContent = "▾";
-  arrow.style.fontSize = ".7em";
-  arrow.style.transition = "transform .15s";
-  heading.appendChild(arrow);
+  headingRow.appendChild(arrow);
+  headerWrap.appendChild(headingRow);
 
-  function applyState() {
-    const val = expanded ? "" : "none";
-    if (box) box.style.setProperty("display", val, "important");
-    if (sortNewest) sortNewest.style.setProperty("display", val, "important");
-    if (sortOldest) sortOldest.style.setProperty("display", val, "important");
-    list.style.setProperty("display", val, "important");
-    arrow.style.transform = expanded ? "rotate(180deg)" : "rotate(0deg)";
+  if (countEl) headerWrap.appendChild(countEl);
+
+  const previewEl = document.createElement("div");
+  previewEl.id = "comment-preview";
+  previewEl.className = "comment-preview";
+  previewEl.style.display = "none";
+  headerWrap.appendChild(previewEl);
+
+  // ---- Wrapper konten yang di-toggle (input, tombol sort, daftar
+  // komentar) supaya bisa dianimasikan smooth SEKALIGUS, tanpa mengubah
+  // elemen aslinya (cuma dipindah ke dalam wrapper, urutan dipertahankan). ----
+  const contentWrap = document.createElement("div");
+  contentWrap.id = "comment-expand-content";
+  contentWrap.className = "comment-expand-content";
+  list.parentNode.insertBefore(contentWrap, box || sortNewest || list);
+  [box, sortNewest, sortOldest, list].forEach(el => { if (el) contentWrap.appendChild(el); });
+
+  function applyState(expanded, animate) {
+    commentSectionExpanded = expanded;
+    arrow.textContent = expanded ? "▴" : "▾";
+    headerWrap.setAttribute("aria-expanded", String(expanded));
+
+    if (!animate) {
+      // Terapkan langsung tanpa transisi -- dipakai saat load awal saja,
+      // supaya tidak ada animasi yang kelihatan saat halaman baru dibuka.
+      contentWrap.style.transition = "none";
+      if (expanded) {
+        contentWrap.style.display = "";
+        contentWrap.classList.add("is-open");
+        contentWrap.style.maxHeight = "none";
+      } else {
+        contentWrap.style.maxHeight = "0px";
+        contentWrap.classList.remove("is-open");
+        contentWrap.style.display = "none";
+      }
+      void contentWrap.offsetWidth;
+      contentWrap.style.transition = "";
+    } else if (expanded) {
+      contentWrap.style.display = "";
+      contentWrap.classList.add("is-open");
+      const target = contentWrap.scrollHeight;
+      contentWrap.style.maxHeight = "0px";
+      requestAnimationFrame(() => { contentWrap.style.maxHeight = target + "px"; });
+      // Lepas batas tinggi setelah animasi selesai, supaya konten yang
+      // tinggi berubah belakangan (komentar baru dst) tidak terpotong.
+      setTimeout(() => { if (commentSectionExpanded) contentWrap.style.maxHeight = "none"; }, 320);
+    } else {
+      const current = contentWrap.scrollHeight;
+      contentWrap.style.maxHeight = current + "px";
+      requestAnimationFrame(() => {
+        contentWrap.style.maxHeight = "0px";
+        contentWrap.classList.remove("is-open");
+      });
+      setTimeout(() => { if (!commentSectionExpanded) contentWrap.style.display = "none"; }, 300);
+    }
+
+    // Preview cuma relevan saat collapsed -- refresh setiap kali status berubah.
+    updateCommentToggleHeader(allComments.filter(c => !c.parentId));
   }
 
-  heading.addEventListener("click", () => {
-    expanded = !expanded;
-    applyState();
+  // Kalau sedang expanded dan tinggi konten berubah (komentar/reply baru),
+  // sinkronkan ulang max-height supaya tidak ada bagian yang terpotong.
+  syncCommentExpandHeight = function () {
+    if (!commentSectionExpanded) return;
+    if (contentWrap.style.maxHeight !== "none") {
+      contentWrap.style.maxHeight = contentWrap.scrollHeight + "px";
+    }
+  };
+
+  headerWrap.addEventListener("click", () => applyState(!commentSectionExpanded, true));
+  headerWrap.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      applyState(!commentSectionExpanded, true);
+    }
   });
 
-  applyState(); // mulai tertutup
+  applyState(false, false); // mulai collapsed, tanpa animasi di load awal
 })();
 
 loadVideo();
