@@ -195,7 +195,10 @@ select.category-select{
    "top" diberi jarak sedikit di bawah site-header yang sticky (~64-70px). */
 aside{
   position:sticky;
-  top:82px;
+  /* Dulu angka tebakan (82px) -- sekarang pakai --site-header-h yang diukur
+     otomatis oleh JS (lihat updateSiteHeaderHeightVar di js/watch.js),
+     ditambah jarak napas 14px, supaya presisi di segala ukuran navbar. */
+  top:calc(var(--site-header-h, 68px) + 14px);
 }
 
 /* ---------- Like video button ---------- */
