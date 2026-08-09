@@ -264,6 +264,9 @@ function loadComments() {
       || `<p style="color:var(--text-muted)">Belum ada komentar. Jadilah yang pertama!</p>`;
     const countEl = document.getElementById("comment-count");
     if (countEl) countEl.textContent = `${topLevel.length} komentar`;
+  }).catch(err => {
+    console.error("Gagal memuat komentar:", err.message);
+    list.innerHTML = `<p style="color:var(--text-muted)">Gagal memuat komentar. Coba muat ulang halaman.</p>`;
   });
 }
 
@@ -322,17 +325,29 @@ function renderComment(c, all) {
 document.getElementById("btn-comment").addEventListener("click", async () => {
   if (!currentUser) { window.location.href = "login.html"; return; }
   const input = document.getElementById("comment-input");
+  const btn = document.getElementById("btn-comment");
   const text = input.value.trim();
   if (!text) return;
-  await addDoc(collection(db, "comments"), {
-    videoId, uid: currentUser.uid,
-    userName: currentUser.displayName || "User",
-    userPhoto: currentUser.photoURL || "",
-    text, parentId: null, likeCount: 0, dislikeCount: 0,
-    createdAt: serverTimestamp()
-  });
-  input.value = "";
-  loadComments();
+
+  btn.disabled = true;
+  btn.textContent = "Mengirim...";
+  try {
+    await addDoc(collection(db, "comments"), {
+      videoId, uid: currentUser.uid,
+      userName: currentUser.displayName || "User",
+      userPhoto: currentUser.photoURL || "",
+      text, parentId: null, likeCount: 0, dislikeCount: 0,
+      createdAt: serverTimestamp()
+    });
+    input.value = "";
+    loadComments();
+  } catch (err) {
+    console.error("Gagal mengirim komentar:", err.message);
+    alert("Komentar gagal terkirim. Coba lagi sebentar lagi.\n(" + err.message + ")");
+  } finally {
+    btn.disabled = !currentUser;
+    btn.textContent = "Kirim";
+  }
 });
 
 // Satu listener untuk hapus komentar DAN reaksi like/dislike
