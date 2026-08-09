@@ -215,33 +215,52 @@ select.category-select{
 }
 
 /* ---------- Efek zoom kolom komentar ----------
-   Saat #comment-input difokus: video-meta (judul, stats, share, desc, tags)
-   di-fade jadi transparan & non-interaktif, sedangkan kolom komentar
-   berubah jadi position:fixed, geser ke posisi tepat di bawah player,
-   lalu zoom-in sedikit. Player video sendiri tidak disentuh sama sekali
-   jadi tetap terlihat penuh di atas. Balik normal saat klik di luar. */
-#video-meta{
-  transition:opacity .2s ease;
+   Saat #comment-input difokus: video (player) dipin (position:fixed) di
+   posisi atas, gak ikut ke-scroll. Area di antara video dan kolom komentar
+   (judul, stats, share, desc, tags, judul "Komentar") di-collapse total
+   biar jaraknya rapat: video -> kolom komentar langsung. Kolom komentar
+   sendiri jadi position:fixed tepat di bawah video. Balik normal begitu
+   textarea kehilangan fokus (termasuk otomatis pas klik "Kirim"). */
+#player-container{
+  transition:none;
 }
-body.comment-focus-active #video-meta{
-  opacity:0;
+#player-container.is-pinned{
+  position:fixed;
+  z-index:59;
+  box-shadow:0 10px 28px rgba(0,0,0,.55);
+}
+#player-placeholder{
+  display:none;
+}
+
+#video-meta, #comments-heading{
+  transition:opacity .12s ease;
+}
+body.comment-focus-active #video-meta,
+body.comment-focus-active #comments-heading{
+  opacity:0 !important;
   pointer-events:none;
+  height:0 !important;
+  min-height:0 !important;
+  overflow:hidden !important;
+  margin:0 !important;
+  padding:0 !important;
+  border:0 !important;
 }
 
 .comment-box{
   position:relative;
-  z-index:5;
+  z-index:60;
   border-radius:var(--radius);
   transition:box-shadow .25s ease;
 }
 .comment-box.is-focused{
   position:fixed;
-  z-index:60;
   background:var(--surface);
   border:1px solid var(--border);
   padding:14px;
   box-shadow:0 16px 36px rgba(0,0,0,.55);
-  animation:comment-zoom-in .25s ease forwards;
+  animation:comment-zoom-in .22s ease forwards;
 }
 @keyframes comment-zoom-in{
   from{ transform:scale(.94); opacity:.5; }
