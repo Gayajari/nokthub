@@ -14,7 +14,7 @@
         document.documentElement.style.setProperty("--accent", c.themeColor);
       }
       if (c && c.siteName) {
-        document.write("<style>.site-brand-text{visibility:hidden}</style>");
+        document.write("<style>.site-brand-text,.site-name-inline{visibility:hidden}</style>");
       }
     } catch(e) {}
   })();
@@ -85,7 +85,7 @@
 
   #form-register{display:none}
 
-  /* ---------- Lupa sandi (gaya kartu, deskripsi + tombol besar) ---------- */
+  /* ---------- Lupa sandi ---------- */
   #form-forgot{display:none}
   .nf-forgot-desc{
     color:var(--text-muted);font-size:.9rem;line-height:1.55;margin-bottom:22px;
@@ -96,6 +96,18 @@
     display:flex;align-items:center;gap:6px;margin-top:22px;
   }
   .nf-forgot-back:hover{color:var(--text)}
+  .nf-hint{
+    color:var(--text-muted);font-size:.8rem;line-height:1.45;margin-top:10px;
+  }
+
+  /* ---------- Input password + tombol lihat/sembunyi ---------- */
+  .nf-pw-wrap{position:relative}
+  .nf-pw-wrap input{padding-right:64px}
+  .nf-pw-toggle{
+    position:absolute;right:12px;top:16px;background:none;border:none;
+    color:var(--text-muted);cursor:pointer;font-size:.8rem;font-weight:600;padding:0;
+  }
+  .nf-pw-toggle:hover{color:var(--text)}
 </style>
 </head>
 <body>
@@ -113,8 +125,12 @@
   <div id="form-login">
     <h1>Masuk</h1>
 
-    <input type="email" id="login-email" placeholder="Email">
-    <input type="password" id="login-password" placeholder="Sandi">
+    <input type="email" id="login-email" placeholder="Email" autocomplete="email">
+
+    <div class="nf-pw-wrap">
+      <input type="password" id="login-password" placeholder="Sandi" autocomplete="current-password">
+      <button type="button" class="nf-pw-toggle" id="toggle-password">Lihat</button>
+    </div>
 
     <button class="btn-accent" id="btn-login">Masuk</button>
 
@@ -126,7 +142,7 @@
 
     <label class="nf-remember">
       <input type="checkbox" id="remember-me">
-      Ingat email saya
+      Ingat saya
     </label>
 
     <div class="nf-switch">
@@ -139,9 +155,13 @@
   <div id="form-register">
     <h1>Daftar Akun</h1>
 
-    <input type="text" id="reg-name" placeholder="Nama">
-    <input type="email" id="reg-email" placeholder="Email">
-    <input type="password" id="reg-password" placeholder="Sandi">
+    <input type="text" id="reg-name" placeholder="Nama" autocomplete="name">
+    <input type="email" id="reg-email" placeholder="Email" autocomplete="email">
+
+    <div class="nf-pw-wrap">
+      <input type="password" id="reg-password" placeholder="Sandi" autocomplete="new-password">
+      <button type="button" class="nf-pw-toggle" id="toggle-reg-password">Lihat</button>
+    </div>
 
     <button class="btn-accent" id="btn-register">Daftar</button>
 
@@ -155,13 +175,15 @@
   <div id="form-forgot">
     <h1>Atur Ulang Sandi</h1>
     <p class="nf-forgot-desc">
-      Masukkan email akun NOKT HUB kamu. Kami akan mengirim link untuk
+      Masukkan email akun <span class="site-name-inline">NOKT HUB</span> kamu. Kami akan mengirim link untuk
       mengatur ulang sandi ke email tersebut.
     </p>
 
-    <input type="email" id="forgot-email" placeholder="Email">
+    <input type="email" id="forgot-email" placeholder="Email" autocomplete="email">
 
     <button class="btn-accent" id="btn-send-reset">Kirimi Saya Email</button>
+
+    <p class="nf-hint">Email tidak masuk dalam beberapa menit? Cek folder Spam atau Promosi.</p>
 
     <button class="nf-forgot-back" id="btn-back-to-login">← Kembali ke Masuk</button>
   </div>
@@ -191,7 +213,7 @@
 </script>
 
 <script type="module">
-import { loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword, watchAuthState } from "./js/auth.js";
+import { loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword, watchAuthState, setLoginPersistence } from "./js/auth.js";
 
 const msg = document.getElementById("auth-msg");
 
@@ -262,6 +284,19 @@ function showView(id) {
 document.getElementById("tab-register").addEventListener("click", () => showView("form-register"));
 document.getElementById("tab-login").addEventListener("click", () => showView("form-login"));
 
+// ---------- Tombol lihat/sembunyi sandi ----------
+function wirePasswordToggle(inputId, btnId) {
+  const input = document.getElementById(inputId);
+  const btn = document.getElementById(btnId);
+  btn.addEventListener("click", () => {
+    const isHidden = input.type === "password";
+    input.type = isHidden ? "text" : "password";
+    btn.textContent = isHidden ? "Sembunyi" : "Lihat";
+  });
+}
+wirePasswordToggle("login-password", "toggle-password");
+wirePasswordToggle("reg-password", "toggle-reg-password");
+
 // ---------- Login Google ----------
 const googleBtn = document.getElementById("google-login");
 googleBtn.addEventListener("click", withLoadingState(googleBtn, async () => {
@@ -281,6 +316,10 @@ loginBtn.addEventListener("click", withLoadingState(loginBtn, async () => {
   if (!email || !password) { setMsg("Isi email dan sandi dulu.", true); return; }
 
   try {
+    // "Ingat saya": kalau dicentang, sesi tetap login walau browser ditutup.
+    // Kalau tidak dicentang, otomatis logout saat tab/browser ditutup.
+    await setLoginPersistence(rememberBox.checked);
+
     await loginWithEmail(email, password);
     try {
       if (rememberBox.checked) localStorage.setItem("nokt_remember_email", email);
@@ -302,7 +341,7 @@ registerBtn.addEventListener("click", withLoadingState(registerBtn, async () => 
 
   try {
     await registerWithEmail(email, password, name);
-    setMsg("Berhasil daftar! Cek email untuk verifikasi.", false);
+    setMsg("Berhasil daftar! Cek email untuk verifikasi (termasuk folder Spam jika tidak terlihat).", false);
   } catch (e) {
     setMsg(friendlyAuthError(e), true);
   }
@@ -322,7 +361,7 @@ sendResetBtn.addEventListener("click", withLoadingState(sendResetBtn, async () =
   if (!email) { setMsg("Isi email dulu untuk reset sandi.", true); return; }
   try {
     await resetPassword(email);
-    setMsg("Link reset sandi sudah dikirim ke email kamu.", false);
+    setMsg("Link reset sandi sudah dikirim ke email kamu. Tidak muncul? Cek folder Spam/Promosi.", false);
   } catch (e) {
     setMsg(friendlyAuthError(e), true);
   }
