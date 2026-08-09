@@ -6,9 +6,6 @@
 <title id="page-title">Login — NOKT HUB</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
-<!-- Anti-flash: pola yang sama dengan semua halaman lain di situs ini —
-     terapkan warna tema & nama situs dari cache SEBELUM halaman digambar,
-     supaya tidak kedip. -->
 <script>
   (function(){
     try {
@@ -34,7 +31,7 @@
   }
 
   .nf-wrap{max-width:420px;margin:20px auto 60px;padding:0 24px}
-  .nf-wrap h1{font-family:var(--font-display);font-size:2rem;margin-bottom:24px}
+  .nf-wrap h1{font-family:var(--font-display);font-size:2rem;margin-bottom:12px}
 
   .nf-wrap input{
     width:100%;padding:16px 14px;margin-bottom:14px;background:#000;
@@ -87,6 +84,18 @@
   .msg.msg-error{color:#ff5c5c}
 
   #form-register{display:none}
+
+  /* ---------- Lupa sandi (gaya kartu, deskripsi + tombol besar) ---------- */
+  #form-forgot{display:none}
+  .nf-forgot-desc{
+    color:var(--text-muted);font-size:.9rem;line-height:1.55;margin-bottom:22px;
+  }
+  .nf-forgot-back{
+    color:var(--text-muted);text-decoration:none;font-size:.88rem;
+    background:none;border:none;cursor:pointer;padding:0;
+    display:flex;align-items:center;gap:6px;margin-top:22px;
+  }
+  .nf-forgot-back:hover{color:var(--text)}
 </style>
 </head>
 <body>
@@ -142,15 +151,24 @@
     </div>
   </div>
 
+  <!-- ---------- FORM LUPA SANDI ---------- -->
+  <div id="form-forgot">
+    <h1>Atur Ulang Sandi</h1>
+    <p class="nf-forgot-desc">
+      Masukkan email akun NOKT HUB kamu. Kami akan mengirim link untuk
+      mengatur ulang sandi ke email tersebut.
+    </p>
+
+    <input type="email" id="forgot-email" placeholder="Email">
+
+    <button class="btn-accent" id="btn-send-reset">Kirimi Saya Email</button>
+
+    <button class="nf-forgot-back" id="btn-back-to-login">← Kembali ke Masuk</button>
+  </div>
+
   <div id="auth-msg" class="msg"></div>
 </main>
 
-<!-- ============================================================
-     Jaring pengaman: script biasa (bukan module), selalu jalan
-     walau script module di bawah gagal total. Sama seperti fix
-     login.html sebelumnya — supaya kalau ada error, kelihatan
-     jelas di layar, bukan diam membisu.
-     ============================================================ -->
 <script>
   window.addEventListener("error", function (e) {
     var m = document.getElementById("auth-msg");
@@ -177,7 +195,6 @@ import { loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword, watc
 
 const msg = document.getElementById("auth-msg");
 
-// ---------- Terjemahkan kode error Firebase ke bahasa manusia ----------
 function friendlyAuthError(err) {
   const code = err && err.code ? err.code : "";
   const map = {
@@ -219,13 +236,10 @@ function withLoadingState(btn, fn) {
   };
 }
 
-// ---------- Kalau ternyata sudah login, langsung ke Home ----------
-// (Menghindari orang yang sudah login nyasar balik ke halaman login.)
 watchAuthState((user) => {
   if (user) window.location.href = "index.html";
 });
 
-// ---------- Ingat email (kenyamanan ringan, disimpan lokal di perangkat) ----------
 const loginEmailInput = document.getElementById("login-email");
 const rememberBox = document.getElementById("remember-me");
 try {
@@ -236,17 +250,17 @@ try {
   }
 } catch (e) {}
 
-// ---------- Tab switching ----------
-document.getElementById("tab-register").addEventListener("click", () => {
+// ---------- Ganti tampilan (login / daftar / lupa sandi) ----------
+function showView(id) {
   document.getElementById("form-login").style.display = "none";
-  document.getElementById("form-register").style.display = "block";
-  setMsg("");
-});
-document.getElementById("tab-login").addEventListener("click", () => {
   document.getElementById("form-register").style.display = "none";
-  document.getElementById("form-login").style.display = "block";
+  document.getElementById("form-forgot").style.display = "none";
+  document.getElementById(id).style.display = "block";
   setMsg("");
-});
+}
+
+document.getElementById("tab-register").addEventListener("click", () => showView("form-register"));
+document.getElementById("tab-login").addEventListener("click", () => showView("form-login"));
 
 // ---------- Login Google ----------
 const googleBtn = document.getElementById("google-login");
@@ -295,16 +309,24 @@ registerBtn.addEventListener("click", withLoadingState(registerBtn, async () => 
 }));
 
 // ---------- Lupa sandi ----------
-document.getElementById("btn-forgot").addEventListener("click", async () => {
-  const email = loginEmailInput.value.trim();
+document.getElementById("btn-forgot").addEventListener("click", () => {
+  document.getElementById("forgot-email").value = loginEmailInput.value.trim();
+  showView("form-forgot");
+});
+
+document.getElementById("btn-back-to-login").addEventListener("click", () => showView("form-login"));
+
+const sendResetBtn = document.getElementById("btn-send-reset");
+sendResetBtn.addEventListener("click", withLoadingState(sendResetBtn, async () => {
+  const email = document.getElementById("forgot-email").value.trim();
   if (!email) { setMsg("Isi email dulu untuk reset sandi.", true); return; }
   try {
     await resetPassword(email);
-    setMsg("Link reset sandi dikirim ke email.", false);
+    setMsg("Link reset sandi sudah dikirim ke email kamu.", false);
   } catch (e) {
     setMsg(friendlyAuthError(e), true);
   }
-});
+}));
 </script>
 
 <script type="module" src="js/firebase-config.js"></script>
