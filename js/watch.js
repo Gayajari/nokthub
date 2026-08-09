@@ -630,7 +630,8 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
   // btn.textContent = "Mengirim..." lalu balik ke "Kirim". Sekarang tombol
   // adalah ikon SVG (pesawat kertas) yang isinya tidak diganti-ganti --
   // feedback "lagi ngirim" & "sukses kirim" dipindah ke class CSS
-  // (is-sending / sent) yang meredupkan / memberi micro-pulse ke ikonnya.
+  // (is-sending / sent / glow-sent) yang meredupkan / memberi micro-pulse
+  // + glow tipis ke ikonnya.
   btn.disabled = true;
   btn.classList.add("is-sending");
   try {
@@ -648,10 +649,15 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
     // overlay jalan seperti biasa, dan user langsung lihat komentar
     // barunya di daftar (posisi udah balik normal).
     input.blur();
-    // Micro-interaction sukses kirim: pulse singkat pada ikon SVG.
+    // Micro-interaction sukses kirim: pulse singkat (scale) pada ikon SVG,
+    // DITAMBAH efek glow tipis yang menyala ±2 detik (class terpisah,
+    // durasi berbeda, supaya "pulse" cepat tapi "glow" terasa lebih lama
+    // dan lembut -- sesuai permintaan "nyala, efek glow, 2 detik, tipis").
     btn.classList.remove("is-sending");
     btn.classList.add("sent");
+    btn.classList.add("glow-sent");
     setTimeout(() => btn.classList.remove("sent"), 400);
+    setTimeout(() => btn.classList.remove("glow-sent"), 2000);
   } catch (err) {
     console.error("Gagal mengirim komentar:", err.message);
     alert("Komentar gagal terkirim. Coba lagi sebentar lagi.\n(" + err.message + ")");
@@ -818,6 +824,11 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
 // atas keyboard. Jauh lebih simpel & stabil karena cuma gantung ke 1 nilai
 // (tinggi keyboard dari visualViewport), bukan ke banyak perhitungan posisi
 // elemen lain yang gampang salah hitung.
+//
+// PENYEMPURNAAN: padding kiri/kanan/bawah simetris di segala device
+// (termasuk notch/gesture-bar) sekarang ditangani lewat CSS
+// (.comment-box.is-focused pakai env(safe-area-inset-*), lihat style.css)
+// -- JS di sini TETAP hanya mengurus tinggi keyboard, tidak perlu diubah.
 let commentZoomController = null;
 
 function setupCommentFocusZoom() {
@@ -1110,7 +1121,10 @@ function injectCommentToggleStyles() {
        Elemen ini ditaruh SEBELUM #comment-list secara DOM (bukan anak dari
        list yang di-scroll), jadi dia otomatis selalu terlihat begitu list
        di-scroll ke bawah -- position:sticky ditambahkan sebagai jaring
-       pengaman ekstra di skenario/browser tertentu. */
+       pengaman ekstra di skenario/browser tertentu.
+       PENYEMPURNAAN: padding-left/right ditambahkan supaya teks "Komentar N"
+       dan tombol "Terbaru/Terlama" tidak mepet ke tepi kiri/kanan seperti
+       sebelumnya -- geseran kecil ke tengah, murni spacing. */
     #comment-subheader{
       position:sticky;
       top:0;
@@ -1119,6 +1133,8 @@ function injectCommentToggleStyles() {
       border-bottom:1px solid var(--border,#232326);
       padding-top:8px;
       padding-bottom:8px;
+      padding-left:6px;
+      padding-right:6px;
       transition:padding .25s ease;
     }
 
@@ -1157,6 +1173,20 @@ function injectCommentToggleStyles() {
       100%{ transform:scale(1); }
     }
     #btn-comment.btn-send.sent{ animation: nokt-send-pulse .4s ease; }
+
+    /* ---- Efek "nyala" / glow tipis setelah kirim sukses ----
+       Berbeda dari .sent (pulse scale cepat, 0.4s): glow ini bertahan
+       ±2 detik dan sengaja dibuat TIPIS (blur & opacity kecil) supaya
+       terasa halus, bukan norak. Class ditambah & dilepas otomatis via
+       JS (lihat listener klik #btn-comment di bagian atas file). */
+    @keyframes nokt-send-glow{
+      0%{ box-shadow:0 0 0 0 rgba(255,122,26,0); }
+      20%{ box-shadow:0 0 9px 2px rgba(255,122,26,.32); }
+      100%{ box-shadow:0 0 0 0 rgba(255,122,26,0); }
+    }
+    #btn-comment.btn-send.glow-sent{
+      animation: nokt-send-glow 2s ease-out;
+    }
 
     /* ---- Tombol sort (Terbaru/Terlama) diperkecil ----
        Menyesuaikan proporsi sekarang tombol kirim sudah jadi ikon bulat
