@@ -463,97 +463,81 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
   }
 });
 
-// ---------- Efek zoom kolom komentar ----------
-// Perubahan dari versi sebelumnya:
-// 1. Sekarang ngikutin window.visualViewport (bukan cuma window.innerHeight),
-//    jadi posisi player & kolom komentar dihitung ulang tiap keyboard
-//    muncul/hilang/berubah tinggi -> gak ada lagi bagian yang ketutup
-//    keyboard atau nyempil di antara elemen lain.
-// 2. Kolom komentar dikasih max-height dinamis = sisa ruang yang beneran
-//    kelihatan (visualViewport.height dikurangi tinggi player+header),
-//    dan overflow-y:auto -> tombol "Kirim" dijamin selalu kelihatan
-//    walau keyboard tinggi (misal di HP dgn keyboard custom yang gede).
-// 3. activate/deactivate/reposition diekspos ke luar (commentZoomController)
-//    supaya bisa dipanggil manual dari luar (dipakai renderCommentsList()
-//    biar reposisi ulang tiap komentar baru masuk / daftar berubah tinggi).
+// ---------- Kolom komentar: bottom-bar mengambang saat fokus ----------
+// Didesain ulang total dari versi "pin video ke atas + hitung top manual"
+// (versi itu gampang meleset -> muncul jarak kosong aneh di atas video,
+// keliatan maksa & gak konsisten di semua HP/browser).
+//
+// Sekarang ngikutin pola app populer (IG/YouTube/TikTok): video DIBIARKAN
+// di tempatnya, gak dipindah-pindah sama sekali. Yang jadi overlay cuma
+// kolom komentar -> nempel sebagai bar full-width di BAWAH layar, pas di
+// atas keyboard. Jauh lebih simpel & stabil karena cuma gantung ke 1 nilai
+// (tinggi keyboard dari visualViewport), bukan ke banyak perhitungan posisi
+// elemen lain yang gampang salah hitung.
 let commentZoomController = null;
 
 function setupCommentFocusZoom() {
   const box = document.querySelector(".comment-box");
   const input = document.getElementById("comment-input");
   const btnSend = document.getElementById("btn-comment");
-  const placeholder = document.getElementById("comment-box-placeholder");
-  const playerPlaceholder = document.getElementById("player-placeholder");
-  const col = document.getElementById("watch-col");
-  const player = document.getElementById("player-container");
-  if (!box || !input || !placeholder || !playerPlaceholder || !col || !player) return null;
+  if (!box || !input || !btnSend) return null;
 
   let isActive = false;
+  let placeholder = null; // jaga tinggi ruang aslinya biar konten di bawah gak "loncat"
 
-  function getHeaderHeight() {
-    const header = document.querySelector(".site-header");
-    return header ? header.getBoundingClientRect().height : 0;
+  // Perkiraan tinggi keyboard yang lagi kebuka = selisih antara tinggi
+  // layout viewport (window.innerHeight, gak berubah) dan tinggi visual
+  // viewport (mengecil saat keyboard muncul).
+  function getKeyboardHeight() {
+    const vv = window.visualViewport;
+    if (!vv) return 0;
+    return Math.max(window.innerHeight - vv.height - vv.offsetTop, 0);
   }
 
-  function positionPinned() {
-    const colRect = col.getBoundingClientRect();
-    const headerH = getHeaderHeight();
-    const vv = window.visualViewport;
-    // offsetTop: seberapa jauh visual viewport "turun" dari layout viewport
-    // (kejadian di sebagian browser mobile saat keyboard muncul).
-    const vvOffsetTop = vv ? vv.offsetTop : 0;
-    const vvHeight = vv ? vv.height : window.innerHeight;
-
-    player.style.top = (headerH + vvOffsetTop) + "px";
-    player.style.left = colRect.left + "px";
-    player.style.width = colRect.width + "px";
-
-    const playerHeightNow = player.getBoundingClientRect().height;
-    const boxTop = headerH + playerHeightNow + 10;
-    box.style.top = (boxTop + vvOffsetTop) + "px";
-    box.style.left = colRect.left + "px";
-    box.style.width = colRect.width + "px";
-
-    // Sisa tinggi yang beneran kelihatan (di atas keyboard) buat kolom komentar,
-    // biar textarea + tombol Kirim gak pernah kepotong/ketutup keyboard.
-    const availableHeight = vvHeight - boxTop - 10;
-    box.style.maxHeight = Math.max(availableHeight, 140) + "px";
-    box.style.overflowY = "auto";
+  function positionBar() {
+    if (!isActive) return;
+    box.style.bottom = getKeyboardHeight() + "px";
   }
 
   function activate() {
-    if (input.disabled) return;
-    if (isActive) return;
+    if (input.disabled || isActive) return;
 
-    const playerRectBefore = player.getBoundingClientRect();
-    const boxRectBefore = box.getBoundingClientRect();
+    // Simpan tempat asli box pakai elemen placeholder kosong seukuran box,
+    // biar layout halaman gak "loncat" pas box diangkat jadi fixed.
+    const rect = box.getBoundingClientRect();
+    placeholder = document.createElement("div");
+    placeholder.style.height = rect.height + "px";
+    box.parentNode.insertBefore(placeholder, box);
 
-    playerPlaceholder.style.height = playerRectBefore.height + "px";
-    playerPlaceholder.style.display = "block";
-    placeholder.style.height = boxRectBefore.height + "px";
-    placeholder.style.display = "block";
+    box.style.position = "fixed";
+    box.style.left = "0";
+    box.style.right = "0";
+    box.style.zIndex = "999";
+    box.style.margin = "0";
+    box.style.borderRadius = "0";
+    box.style.boxShadow = "0 -4px 16px rgba(0,0,0,.45)";
 
-    player.classList.add("is-pinned");
     document.body.classList.add("comment-focus-active");
-
-    positionPinned();
     box.classList.add("is-focused");
     isActive = true;
+    positionBar();
 
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    // Biarkan browser scroll textarea yang fokus ke area kelihatan secara
+    // natural -- gak perlu dipaksa scrollTo manual seperti sebelumnya.
   }
 
   function deactivate() {
     if (!isActive) return;
     box.classList.remove("is-focused");
-    player.classList.remove("is-pinned");
     document.body.classList.remove("comment-focus-active");
 
-    box.style.top = box.style.left = box.style.width = box.style.maxHeight = box.style.overflowY = "";
-    player.style.top = player.style.left = player.style.width = "";
+    box.style.position = box.style.left = box.style.right = box.style.bottom =
+      box.style.zIndex = box.style.margin = box.style.borderRadius = box.style.boxShadow = "";
 
-    placeholder.style.display = "none";
-    playerPlaceholder.style.display = "none";
+    if (placeholder) {
+      placeholder.remove();
+      placeholder = null;
+    }
     isActive = false;
   }
 
@@ -566,14 +550,13 @@ function setupCommentFocusZoom() {
     e.preventDefault();
   });
 
-  window.addEventListener("resize", () => { if (isActive) positionPinned(); });
   if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", () => { if (isActive) positionPinned(); });
-    window.visualViewport.addEventListener("scroll", () => { if (isActive) positionPinned(); });
+    window.visualViewport.addEventListener("resize", positionBar);
+    window.visualViewport.addEventListener("scroll", positionBar);
   }
 
   return {
-    activate, deactivate, reposition: positionPinned,
+    activate, deactivate, reposition: positionBar,
     isActive: () => isActive
   };
 }
