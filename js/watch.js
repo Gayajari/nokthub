@@ -974,6 +974,48 @@ function autoGrowTextarea(el) {
     </svg>`;
 })();
 
+// ---------- Layout satu baris: textarea + tombol kirim di sampingnya ----------
+// Sebelumnya tombol kirim ada di baris TERPISAH di bawah textarea (di dalam
+// div pembungkus yang sama dengan hint login). Sekarang tombol dipindah
+// jadi sibling LANGSUNG setelah textarea di dalam .comment-box, lalu
+// .comment-box dibuat flex-row supaya keduanya sejajar satu baris (textarea
+// melebar mengisi ruang, tombol bulat nempel di kanan). Hint login (yang
+// tadinya satu baris dengan tombol) tetap ada, cuma sekarang jadi baris
+// sendiri paling bawah (flex-basis:100%) kalau user belum login -- tidak
+// ada elemen yang dihapus, cuma posisinya yang diatur ulang.
+(function setupInlineSendLayout() {
+  const box = document.querySelector(".comment-box");
+  const textarea = document.getElementById("comment-input");
+  const btn = document.getElementById("btn-comment");
+  const hint = document.getElementById("comment-login-hint");
+  if (!box || !textarea || !btn) return;
+
+  const hintRow = hint ? hint.parentElement : null; // div pembungkus asli (skrg cuma isi hint, tombol sudah dipindah keluar)
+
+  box.insertBefore(btn, textarea.nextSibling);
+
+  box.style.setProperty("display", "flex", "important");
+  box.style.setProperty("flex-wrap", "wrap", "important");
+  box.style.setProperty("align-items", "flex-end", "important");
+  box.style.setProperty("gap", "8px", "important");
+
+  textarea.style.setProperty("flex", "1 1 auto", "important");
+  textarea.style.setProperty("width", "auto", "important");
+  textarea.style.setProperty("min-width", "0", "important");
+  // Border tipis eksplisit, mengikuti gaya tombol Terbaru/Terlama/Share
+  // (border 1px warna --border, radius 8px) supaya konsisten satu tema.
+  textarea.style.setProperty("border", "1px solid var(--border, #232326)", "important");
+  textarea.style.setProperty("border-radius", "8px", "important");
+
+  if (hintRow) {
+    // Hint login didorong ke baris baru paling bawah (bukan sejajar
+    // dengan textarea+tombol) supaya tidak bikin baris utama sempit.
+    hintRow.style.setProperty("flex-basis", "100%", "important");
+    hintRow.style.setProperty("margin-top", "6px", "important");
+    hintRow.style.setProperty("order", "3", "important");
+  }
+})();
+
 // ---------- Deskripsi ringkas dengan toggle "Selengkapnya" ----------
 function setupCollapsibleDescription(descEl, fullText) {
   descEl.textContent = fullText;
@@ -1115,6 +1157,15 @@ function injectCommentToggleStyles() {
       100%{ transform:scale(1); }
     }
     #btn-comment.btn-send.sent{ animation: nokt-send-pulse .4s ease; }
+
+    /* ---- Tombol sort (Terbaru/Terlama) diperkecil ----
+       Menyesuaikan proporsi sekarang tombol kirim sudah jadi ikon bulat
+       kecil di samping textarea -- padding & ukuran font dikecilkan
+       sedikit supaya seimbang, tidak mengubah fungsinya sama sekali. */
+    #sort-newest, #sort-oldest{
+      padding:5px 10px !important;
+      font-size:.72rem !important;
+    }
   `;
   document.head.appendChild(style);
 }
