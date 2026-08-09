@@ -1077,7 +1077,6 @@ function injectCommentToggleStyles() {
       border-bottom:1px solid var(--border,#232326);
       padding-top:8px;
       padding-bottom:8px;
-      margin-top:0 !important;
       transition:padding .25s ease;
     }
 
@@ -1377,12 +1376,15 @@ function updateCommentToggleHeader(topLevel) {
   // dipindah, bukan sortNewest/sortOldest satu-satu -- struktur
   // flex/space-between aslinya tetap sama persis seperti di HTML.
   //
-  // PENYEMPURNAAN: urutan penempatan diubah dari [box, sortRow, list]
-  // jadi [sortRow, list, box] -- supaya sesuai pola "header sticky ->
-  // daftar scroll -> input di bawah" ala aplikasi video modern. Elemennya
-  // SAMA PERSIS (tidak ada yang dibuat baru/dihapus), cuma urutan taruh
-  // di dalam contentWrap yang berubah.
-  [sortRow, list, box].forEach(el => { if (el) contentWrap.appendChild(el); });
+  // PENYEMPURNAAN (dikembalikan sesuai permintaan): urutan penempatan
+  // TETAP [box, sortRow, list] seperti semula -- kolom "Tulis komentar"
+  // balik ke posisi PALING ATAS (persis kondisi awal). Yang jadi header
+  // sticky & scrollable hanyalah daftar komentar orang lain (sortRow +
+  // list), yang posisinya tepat di bawah kolom input, dan tetap berada
+  // di atas section "Video Terkait" (karena section komentar & aside
+  // Video Terkait adalah dua blok terpisah di watch.html -- lihat
+  // .watch-layout -- urutan di dalam komentar tidak memengaruhi itu).
+  [box, sortRow, list].forEach(el => { if (el) contentWrap.appendChild(el); });
 
   // ---------- Compact mode saat daftar komentar di-scroll ----------
   // Begitu user scroll #comment-list menjauh dari paling atas, header
