@@ -1416,10 +1416,14 @@ function updateCommentToggleHeader(topLevel) {
         contentWrap.style.display = "";
         contentWrap.classList.add("is-open");
         contentWrap.style.maxHeight = "none";
+        // FIX (sticky header): lihat penjelasan di cabang animate+expanded
+        // di bawah -- overflow:visible wajib biar position:sticky jalan.
+        contentWrap.style.setProperty("overflow", "visible", "important");
       } else {
         contentWrap.style.maxHeight = "0px";
         contentWrap.classList.remove("is-open");
         contentWrap.style.display = "none";
+        contentWrap.style.removeProperty("overflow"); // balik ke overflow:hidden bawaan class
       }
       void contentWrap.offsetWidth;
       contentWrap.style.transition = "";
@@ -1431,8 +1435,29 @@ function updateCommentToggleHeader(topLevel) {
       requestAnimationFrame(() => { contentWrap.style.maxHeight = target + "px"; });
       // Lepas batas tinggi setelah animasi selesai, supaya konten yang
       // tinggi berubah belakangan (komentar baru dst) tidak terpotong.
-      setTimeout(() => { if (commentSectionExpanded) contentWrap.style.maxHeight = "none"; }, 320);
+      setTimeout(() => {
+        if (commentSectionExpanded) {
+          contentWrap.style.maxHeight = "none";
+          // FIX: #comment-expand-content punya overflow:hidden di CSS
+          // (dipakai buat meng-clip tinggi SELAMA animasi buka/tutup).
+          // Masalahnya overflow selain "visible" membuat elemen ini
+          // dianggap sebagai "batas scroll" oleh position:sticky pada
+          // #comment-subheader -- padahal wrapper ini sendiri TIDAK
+          // pernah discroll (cuma tumbuh tinggi ikut konten), jadi
+          // sticky-nya jadi buntu/gak pernah nempel. Begitu animasi buka
+          // selesai (tinggi sudah stabil), overflow dilepas jadi
+          // "visible" supaya sticky merujuk ke scroll HALAMAN yang
+          // sebenarnya -- persis seperti .site-header yang sudah sticky
+          // duluan di navbar atas.
+          contentWrap.style.setProperty("overflow", "visible", "important");
+        }
+      }, 320);
     } else {
+      // FIX: overflow dikembalikan ke "hidden" (hapus override visible)
+      // SEBELUM animasi menutup dimulai -- supaya isi komentar tetap
+      // ke-clip rapi mengikuti tinggi yang menyusut, bukan malah
+      // "meluber" kelihatan dulu baru kepotong belakangan.
+      contentWrap.style.removeProperty("overflow");
       const current = contentWrap.scrollHeight;
       contentWrap.style.maxHeight = current + "px";
       requestAnimationFrame(() => {
