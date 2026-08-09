@@ -478,4 +478,4 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 });
 
-export { computePopularScore, renderVideoCard, escapeHtml, PAGE_SIZE };
+export { computePopularScore, renderVideoCard, escapeHtml, PAGE_SIZE, buildThumbChain };
