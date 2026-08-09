@@ -484,21 +484,39 @@ function setupCommentFocusZoom() {
 
   let isActive = false;
   let placeholder = null; // jaga tinggi ruang aslinya biar konten di bawah gak "loncat"
+  let rafId = null; // buat nunda perhitungan posisi sampai browser selesai 1 frame animasi
 
-  // Perkiraan tinggi keyboard yang lagi kebuka = selisih antara tinggi
-  // layout viewport (window.innerHeight, gak berubah) dan tinggi visual
-  // viewport (mengecil saat keyboard muncul).
-  function getKeyboardHeight() {
+  // Perkiraan tinggi keyboard = selisih antara layout viewport (window.innerHeight)
+  // dan visual viewport (mengecil saat keyboard muncul). Kalau browser sudah
+  // otomatis mengecilkan layout viewport pas keyboard buka (perilaku default),
+  // selisihnya kecil/nol -> "bottom: 0" saja sudah pas di atas keyboard.
+  // Toleransi 24px dipakai biar selisih receh (rounding, address bar animasi)
+  // gak bikin nilai bolak-balik / flicker.
+  function getKeyboardOffset() {
     const vv = window.visualViewport;
     if (!vv) return 0;
-    return Math.max(window.innerHeight - vv.height - vv.offsetTop, 0);
+    const gap = window.innerHeight - vv.height - vv.offsetTop;
+    return gap > 24 ? gap : 0;
   }
 
+  // Ditunda ke requestAnimationFrame supaya perhitungan dilakukan SETELAH
+  // browser selesai reflow (bukan di tengah-tengah animasi buka/tutup
+  // keyboard) -- ini yang benerin "kadang di atas kadang di bawah" karena
+  // sebelumnya nilai transisi yang belum stabil ikut kepakai.
   function positionBar() {
     if (!isActive) return;
-    box.style.bottom = getKeyboardHeight() + "px";
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(() => {
+      rafId = null;
+      if (!isActive) return;
+      box.style.setProperty("bottom", getKeyboardOffset() + "px", "important");
+    });
   }
 
+  // Semua properti dipaksa pakai !important lewat setProperty -- supaya
+  // kolom komentar SELALU jadi layer fixed yang stabil (persis kayak bar
+  // nama web/logo yang "tetep disitu"), gak bisa keganggu/dikalahkan CSS
+  // lain yang mungkin ada aturan bentrok soal .comment-box atau .is-focused.
   function activate() {
     if (input.disabled || isActive) return;
 
@@ -509,13 +527,15 @@ function setupCommentFocusZoom() {
     placeholder.style.height = rect.height + "px";
     box.parentNode.insertBefore(placeholder, box);
 
-    box.style.position = "fixed";
-    box.style.left = "0";
-    box.style.right = "0";
-    box.style.zIndex = "999";
-    box.style.margin = "0";
-    box.style.borderRadius = "0";
-    box.style.boxShadow = "0 -4px 16px rgba(0,0,0,.45)";
+    box.style.setProperty("position", "fixed", "important");
+    box.style.setProperty("top", "auto", "important");
+    box.style.setProperty("left", "0", "important");
+    box.style.setProperty("right", "0", "important");
+    box.style.setProperty("bottom", "0", "important");
+    box.style.setProperty("z-index", "999", "important");
+    box.style.setProperty("margin", "0", "important");
+    box.style.setProperty("border-radius", "0", "important");
+    box.style.setProperty("box-shadow", "0 -4px 16px rgba(0,0,0,.45)", "important");
 
     document.body.classList.add("comment-focus-active");
     box.classList.add("is-focused");
@@ -528,11 +548,12 @@ function setupCommentFocusZoom() {
 
   function deactivate() {
     if (!isActive) return;
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
     box.classList.remove("is-focused");
     document.body.classList.remove("comment-focus-active");
 
-    box.style.position = box.style.left = box.style.right = box.style.bottom =
-      box.style.zIndex = box.style.margin = box.style.borderRadius = box.style.boxShadow = "";
+    ["position", "top", "left", "right", "bottom", "z-index", "margin", "border-radius", "box-shadow"]
+      .forEach(prop => box.style.removeProperty(prop));
 
     if (placeholder) {
       placeholder.remove();
