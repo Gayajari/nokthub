@@ -9,6 +9,35 @@ import {
 import { renderPlayer, trackResumePosition } from "./player.js";
 import { escapeHtml, renderVideoCard, computePopularScore, buildThumbChain } from "./app.js";
 
+// ---------- FIX: header komentar "macet"/ketutup navbar ----------
+// Sebelumnya #comment-subheader (baris "Komentar N" + Terbaru/Terlama) dan
+// .site-header (navbar paling atas) SAMA-SAMA position:sticky;top:0. Karena
+// top-nya sama-sama 0, keduanya rebutan posisi paling atas viewport -- begitu
+// halaman di-scroll, header komentar nempel TEPAT DI BELAKANG navbar (bukan
+// di bawahnya), jadi komentar paling atas kelihatan seperti "macet"/kepotong
+// dan terkesan tidak bisa discroll lagi ke atas, padahal scroll-nya jalan,
+// cuma kontennya ketutup navbar yang z-index-nya lebih tinggi.
+//
+// Fix: ukur tinggi asli .site-header (bisa beda-beda tiap device -- search
+// box bisa wrap ke baris ke-2 di layar sangat sempit) dan simpan sebagai CSS
+// variable --site-header-h. #comment-subheader lalu sticky di
+// top:var(--site-header-h) alih-alih top:0, jadi selalu nempel PAS DI BAWAH
+// navbar, bukan ketiban olehnya, di segala ukuran layar.
+function updateSiteHeaderHeightVar() {
+  const header = document.querySelector(".site-header");
+  if (!header) return;
+  const h = Math.ceil(header.getBoundingClientRect().height);
+  document.documentElement.style.setProperty("--site-header-h", h + "px");
+}
+updateSiteHeaderHeightVar();
+window.addEventListener("resize", updateSiteHeaderHeightVar);
+window.addEventListener("orientationchange", () => setTimeout(updateSiteHeaderHeightVar, 150));
+if (document.fonts && document.fonts.ready) {
+  // Font custom (Space Grotesk dkk) bisa mengubah tinggi navbar sedikit
+  // setelah selesai load -- ukur ulang sekali begitu font siap.
+  document.fonts.ready.then(updateSiteHeaderHeightVar);
+}
+
 const params = new URLSearchParams(window.location.search);
 const videoId = params.get("id");
 let currentUser = null;
@@ -1127,7 +1156,7 @@ function injectCommentToggleStyles() {
        sebelumnya -- geseran kecil ke tengah, murni spacing. */
     #comment-subheader{
       position:sticky;
-      top:0;
+      top:var(--site-header-h, 64px);
       z-index:5;
       background:var(--surface,#141416);
       border-bottom:1px solid var(--border,#232326);
