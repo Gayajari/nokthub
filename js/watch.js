@@ -19,7 +19,31 @@ const MIN_WATCH_SECONDS = 10; // minimal detik nonton sebelum view dihitung
 const VIEW_WINDOW_MS = 5 * 60 * 1000; // jeda 5 menit sebelum view dihitung ulang (sebelumnya 15 menit / 1 jam / 24 jam)
 let viewCounted = false; // biar countView cuma jalan sekali per sesi nonton
 
-onAuthStateChanged(auth, (u) => currentUser = u);
+// ---------- Ikon SVG (dipakai ulang untuk tombol like video & like/dislike komentar) ----------
+const ICON_THUMB_UP = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>`;
+const ICON_THUMB_DOWN = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg>`;
+
+onAuthStateChanged(auth, (u) => {
+  currentUser = u;
+  checkLikeState();
+  updateCommentBoxState();
+  loadComments(); // reload biar tombol like/dislike & status login-nya sinkron ulang
+});
+
+// Aktifkan/nonaktifkan kotak komentar sesuai status login.
+// Sebelumnya textarea & tombol selalu aktif meski belum login (cuma placeholder
+// yang bilang "harus login"), jadi user abis login pun tampilannya gak berubah.
+function updateCommentBoxState() {
+  const input = document.getElementById("comment-input");
+  const btn = document.getElementById("btn-comment");
+  const hint = document.getElementById("comment-login-hint");
+  if (!input || !btn) return;
+  const loggedIn = !!currentUser;
+  input.disabled = !loggedIn;
+  btn.disabled = !loggedIn;
+  input.placeholder = loggedIn ? "Tulis komentar..." : "Tulis komentar...";
+  if (hint) hint.style.display = loggedIn ? "none" : "inline";
+}
 
 async function loadVideo() {
   if (!videoId) return;
@@ -31,10 +55,12 @@ async function loadVideo() {
   }
   videoData = { id: snap.id, ...snap.data() };
   renderVideoInfo();
+  updateCommentBoxState();
   // countView() dipindah, sekarang dipanggil dari trackResumePosition setelah nonton 10 detik
   listenVideoStats(); // view/like update realtime tanpa reload
   await loadRelated();
   loadComments();
+  checkLikeState();
 }
 
 function renderVideoInfo() {
@@ -136,15 +162,29 @@ function getAnonId() {
   return id;
 }
 
-// ---------- Like ----------
+// ---------- Like video ----------
+async function checkLikeState() {
+  const btn = document.getElementById("btn-like");
+  if (!btn) return;
+  if (!currentUser || !videoId) { btn.classList.remove("is-active"); return; }
+  try {
+    const snap = await getDoc(doc(db, "likes", `${videoId}_${currentUser.uid}`));
+    btn.classList.toggle("is-active", snap.exists());
+  } catch (err) {
+    console.error("Gagal memeriksa status like:", err.message);
+  }
+}
+
 document.getElementById("btn-like").addEventListener("click", async () => {
   if (!currentUser) { window.location.href = "login.html"; return; }
+  const btn = document.getElementById("btn-like");
   try {
     const likeRef = doc(db, "likes", `${videoId}_${currentUser.uid}`);
     const snap = await getDoc(likeRef);
-    if (snap.exists()) return; // sudah like
+    if (snap.exists()) { btn.classList.add("is-active"); return; } // sudah like
     await setDoc(likeRef, { videoId, uid: currentUser.uid });
     await updateDoc(doc(db, "videos", videoId), { likeCount: increment(1) });
+    btn.classList.add("is-active");
   } catch (err) {
     console.error("Gagal menyimpan like:", err.message);
   }
@@ -205,32 +245,69 @@ async function loadRelated() {
 }
 
 // ---------- Comments ----------
+let allComments = [];
+let userReactions = {}; // { commentId: "like" | "dislike" }, dimuat sekali per load
+let commentSortOrder = "desc"; // "desc" = terbaru dulu, "asc" = terlama dulu
+
 function loadComments() {
   const list = document.getElementById("comment-list");
   const q = query(
     collection(db, "comments"),
     where("videoId", "==", videoId),
-    orderBy("createdAt", "desc")
+    orderBy("createdAt", commentSortOrder)
   );
-  getDocs(q).then(snap => {
-    const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    list.innerHTML = comments.filter(c => !c.parentId).map(c => renderComment(c, comments)).join("")
+  getDocs(q).then(async (snap) => {
+    allComments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    await loadUserReactions();
+    const topLevel = allComments.filter(c => !c.parentId);
+    list.innerHTML = topLevel.map(c => renderComment(c, allComments)).join("")
       || `<p style="color:var(--text-muted)">Belum ada komentar. Jadilah yang pertama!</p>`;
+    const countEl = document.getElementById("comment-count");
+    if (countEl) countEl.textContent = `${topLevel.length} komentar`;
   });
+}
+
+document.querySelectorAll("#sort-newest, #sort-oldest").forEach(btn => {
+  btn.addEventListener("click", () => {
+    commentSortOrder = btn.dataset.sort;
+    document.querySelectorAll("#sort-newest, #sort-oldest").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    loadComments();
+  });
+});
+document.getElementById("sort-newest").classList.add("active"); // default: terbaru dulu
+
+// Ambil reaksi milik user saat ini untuk semua komentar yang sedang tampil,
+// supaya tombol like/dislike langsung tampil "aktif" kalau sudah pernah diklik.
+async function loadUserReactions() {
+  userReactions = {};
+  if (!currentUser || !allComments.length) return;
+  try {
+    await Promise.all(allComments.map(async (c) => {
+      const snap = await getDoc(doc(db, "comment_reactions", `${c.id}_${currentUser.uid}`));
+      if (snap.exists()) userReactions[c.id] = snap.data().type;
+    }));
+  } catch (err) {
+    console.error("Gagal memuat reaksi komentar:", err.message);
+  }
 }
 
 function renderComment(c, all) {
   const replies = all.filter(r => r.parentId === c.id);
   const isOwner = currentUser && currentUser.uid === c.uid;
+  const myReaction = userReactions[c.id];
+  const likeActive = myReaction === "like" ? "is-active" : "";
+  const dislikeActive = myReaction === "dislike" ? "is-active" : "";
+  const disabledClass = myReaction ? "is-disabled" : "";
   return `
     <div class="comment-item">
       <img src="${c.userPhoto || 'https://via.placeholder.com/34'}" alt="">
       <div style="flex:1">
         <div style="font-size:.85rem;font-weight:600">${escapeHtml(c.userName || 'User')}</div>
         <div style="font-size:.85rem;margin:4px 0">${escapeHtml(c.text)}</div>
-        <div style="display:flex;gap:10px;font-size:.72rem;color:var(--text-muted)">
-          <span>👍 ${c.likeCount||0}</span>
-          <span>👎 ${c.dislikeCount||0}</span>
+        <div style="display:flex;gap:14px;font-size:.72rem;color:var(--text-muted)">
+          <span class="comment-react ${likeActive} ${disabledClass}" data-react="like" data-cid="${c.id}">${ICON_THUMB_UP} ${c.likeCount||0}</span>
+          <span class="comment-react ${dislikeActive} ${disabledClass}" data-react="dislike" data-cid="${c.id}">${ICON_THUMB_DOWN} ${c.dislikeCount||0}</span>
           ${isOwner ? `<span style="cursor:pointer" data-del="${c.id}">Hapus</span>` : ""}
         </div>
         ${replies.map(r => `
@@ -258,11 +335,34 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
   loadComments();
 });
 
+// Satu listener untuk hapus komentar DAN reaksi like/dislike
 document.getElementById("comment-list").addEventListener("click", async (e) => {
   const delId = e.target.dataset.del;
   if (delId) {
     await deleteDoc(doc(db, "comments", delId));
     loadComments();
+    return;
+  }
+
+  const reactEl = e.target.closest("[data-react]");
+  if (reactEl) {
+    if (!currentUser) { window.location.href = "login.html"; return; }
+    if (reactEl.classList.contains("is-disabled")) return; // sudah pernah react, cegah double klik
+
+    const cid = reactEl.dataset.cid;
+    const type = reactEl.dataset.react; // "like" atau "dislike"
+    const reactRef = doc(db, "comment_reactions", `${cid}_${currentUser.uid}`);
+    try {
+      const snap = await getDoc(reactRef);
+      if (snap.exists()) return; // sudah pernah react sebelumnya
+      await setDoc(reactRef, { commentId: cid, uid: currentUser.uid, type });
+      await updateDoc(doc(db, "comments", cid), {
+        [type === "like" ? "likeCount" : "dislikeCount"]: increment(1)
+      });
+      loadComments(); // reload supaya angka & status aktif ter-update
+    } catch (err) {
+      console.error("Gagal menyimpan reaksi komentar:", err.message);
+    }
   }
 });
 
