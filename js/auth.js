@@ -5,7 +5,8 @@ import {
   auth, db, googleProvider, onAuthStateChanged, signInWithPopup,
   signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
   sendPasswordResetEmail, sendEmailVerification, updateProfile,
-  doc, setDoc, getDoc, serverTimestamp
+  doc, setDoc, getDoc, serverTimestamp,
+  setPersistence, browserLocalPersistence, browserSessionPersistence
 } from "./firebase-config.js";
 
 async function ensureUserDoc(user) {
@@ -22,6 +23,13 @@ async function ensureUserDoc(user) {
       createdAt: serverTimestamp()
     });
   }
+}
+
+// "Ingat saya" dicentang -> tetap login walau browser ditutup (localPersistence).
+// Tidak dicentang -> logout otomatis begitu tab/browser ditutup (sessionPersistence).
+// Panggil ini SEBELUM loginWithEmail() atau loginWithGoogle().
+export async function setLoginPersistence(remember) {
+  await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
 }
 
 export async function loginWithGoogle() {
@@ -80,12 +88,6 @@ function renderAuthUI(loginBtn, profileBtn, state) {
 }
 
 // ---------- Terapkan status login dari cache dulu (instan) ----------
-// Sama seperti mekanisme nama/warna situs: supaya pengunjung yang sudah
-// pernah buka situs ini sebelumnya langsung lihat tampilan Login/Profil
-// yang (kemungkinan besar) benar, tanpa nunggu Firebase selesai memeriksa
-// status login — yang biasanya makan waktu sepersekian detik dan bikin
-// tombol "Login" sempat kelihatan kedip sebelum berubah jadi profil
-// (atau sebaliknya).
 function applyCachedAuthState() {
   const loginBtn = document.getElementById("login-btn");
   const profileBtn = document.getElementById("profile-btn");
@@ -105,9 +107,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // 1) Terapkan dulu dari cache -> instan, minim kedip.
   applyCachedAuthState();
 
-  // 2) Baru dengarkan status asli dari Firebase. Begitu didapat, render
-  //    ulang (mengonfirmasi/mengoreksi hasil cache) dan simpan ke cache
-  //    lagi untuk kunjungan berikutnya.
+  // 2) Baru dengarkan status asli dari Firebase.
   watchAuthState((user) => {
     const state = user
       ? { loggedIn: true, displayName: user.displayName || "", photoURL: user.photoURL || "" }
