@@ -100,10 +100,12 @@ function renderVideoInfo() {
 
   const catEl = document.getElementById("video-category");
   if (v.category) {
-    // "-" placeholder dibuang -- chip kategori cuma dimunculkan kalau
-    // videonya emang punya kategori. Sebelumnya chip kosong isi "-" tetap
-    // dirender dan makan tempat padahal gak berguna sama sekali.
-    catEl.innerHTML = `<a class="cat-chip" href="category.html?c=${encodeURIComponent(v.category)}">${escapeHtml(v.category)}</a>`;
+    // Kategori tetap ditampilkan (fitur navigasi/filter yang beneran
+    // berguna) TAPI dibuat gak menonjol -- lebih kecil & redup, jadi
+    // ngasih info tanpa jadi elemen yang paling mencolok di halaman.
+    // Placeholder "-" tetap dibuang, cuma dirender kalau videonya
+    // beneran punya kategori.
+    catEl.innerHTML = `<a class="cat-chip" href="category.html?c=${encodeURIComponent(v.category)}" style="font-size:.75rem;opacity:.7;padding:3px 10px">${escapeHtml(v.category)}</a>`;
     catEl.style.display = "";
   } else {
     catEl.innerHTML = "";
@@ -696,34 +698,52 @@ function setupCollapsibleDescription(descEl, fullText) {
 
 // ---------- Section Komentar: tertutup by default ----------
 // Poin dari user: yang penting itu VIDEO dan VIDEO TERKAIT (biar orang
-// lanjut nonton), bukan komentar. Jadi begitu halaman dibuka, seluruh isi
-// komentar (kotak tulis, tombol kirim, sort, daftar komentar) disembunyikan
-// dulu di balik satu baris ringkas "X komentar ▾" yang bisa di-tap buat
-// buka kalau user memang mau baca -- persis kayak "Lihat X balasan" di
-// kebanyakan app sosial. Ini bikin jarak dari video sampai Video Terkait
-// jadi pendek, gak peduli section komentar sebenarnya seberapa besar.
+// lanjut nonton), bukan komentar. Jadi begitu halaman dibuka, isi komentar
+// (kotak tulis, tombol kirim, sort, daftar komentar) disembunyikan dulu.
+//
+// REVISI dari versi sebelumnya: target klik buat buka/tutup DIPINDAH dari
+// strip kecil "X komentar" (yang posisinya di tengah, di antara tombol
+// Kirim & daftar komentar -- aneh & gak nyaman dijangkau) ke JUDUL
+// "Komentar" itu sendiri di paling atas section. Ini pola accordion yang
+// lebih umum & pola muscle-memory alami: tap judulnya buat buka/tutup,
+// bukan cari strip kecil di tengah konten. Baris "X komentar" tetap
+// kelihatan sebagai info (gak lagi jadi tombol), biar user tetap tau
+// jumlah komentar tanpa harus buka dulu.
+function findCommentHeading() {
+  const headingTags = document.querySelectorAll("h1,h2,h3,h4,h5,h6");
+  for (const el of headingTags) {
+    if (el.textContent.trim() === "Komentar") return el;
+  }
+  // fallback: cari elemen leaf (gak punya anak elemen lain) yang teksnya
+  // persis "Komentar", buat jaga-jaga kalau judulnya bukan tag heading.
+  const all = document.querySelectorAll("body *");
+  for (const el of all) {
+    if (el.children.length === 0 && el.textContent.trim() === "Komentar") return el;
+  }
+  return null;
+}
+
 (function setupCollapsibleCommentsSection() {
-  const countEl = document.getElementById("comment-count");
+  const heading = findCommentHeading();
   const box = document.querySelector(".comment-box");
   const sortNewest = document.getElementById("sort-newest");
   const sortOldest = document.getElementById("sort-oldest");
   const list = document.getElementById("comment-list");
-  if (!countEl || !list) return;
+  if (!heading || !list) return;
 
   let expanded = false;
 
-  const wrap = document.createElement("button");
-  wrap.type = "button";
-  wrap.id = "btn-toggle-comments";
-  wrap.style.cssText =
-    "display:flex;align-items:center;gap:8px;background:none;border:none;color:inherit;font:inherit;font-weight:600;cursor:pointer;padding:8px 0;width:100%;text-align:left";
-  countEl.parentNode.insertBefore(wrap, countEl);
-  wrap.appendChild(countEl);
+  heading.style.setProperty("cursor", "pointer", "important");
+  heading.style.setProperty("user-select", "none", "important");
+  heading.style.setProperty("display", "flex", "important");
+  heading.style.setProperty("align-items", "center", "important");
+  heading.style.setProperty("gap", "8px", "important");
 
   const arrow = document.createElement("span");
   arrow.textContent = "▾";
+  arrow.style.fontSize = ".7em";
   arrow.style.transition = "transform .15s";
-  wrap.appendChild(arrow);
+  heading.appendChild(arrow);
 
   function applyState() {
     const val = expanded ? "" : "none";
@@ -734,7 +754,7 @@ function setupCollapsibleDescription(descEl, fullText) {
     arrow.style.transform = expanded ? "rotate(180deg)" : "rotate(0deg)";
   }
 
-  wrap.addEventListener("click", () => {
+  heading.addEventListener("click", () => {
     expanded = !expanded;
     applyState();
   });
