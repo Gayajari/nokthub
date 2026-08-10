@@ -20,9 +20,11 @@ import { escapeHtml, renderVideoCard, computePopularScore, buildThumbChain } fro
 //
 // Fix: ukur tinggi asli .site-header (bisa beda-beda tiap device -- search
 // box bisa wrap ke baris ke-2 di layar sangat sempit) dan simpan sebagai CSS
-// variable --site-header-h. #comment-subheader lalu sticky di
-// top:var(--site-header-h) alih-alih top:0, jadi selalu nempel PAS DI BAWAH
-// navbar, bukan ketiban olehnya, di segala ukuran layar.
+// variable --site-header-h. Variable ini TETAP dipertahankan karena masih
+// dipakai oleh aside "Video Terkait" (lihat style.css) untuk sticky
+// positioning-nya sendiri -- tidak ada hubungannya lagi dengan komentar
+// sekarang karena sticky header komentar sudah dihapus total (lihat
+// injectCommentToggleStyles di bawah).
 function updateSiteHeaderHeightVar() {
   const header = document.querySelector(".site-header");
   if (!header) return;
@@ -1118,6 +1120,21 @@ function findCommentHeading() {
   return null;
 }
 
+// ---------- FIX: sticky header komentar dihapus total ----------
+// Sebelumnya #comment-subheader (baris "Komentar N" + tombol
+// Terbaru/Terlama) dipasang position:sticky supaya tetap kelihatan saat
+// daftar komentar di-scroll. Efeknya: baris itu nempel TEPAT DI BELAKANG
+// navbar (site-header, yang juga sticky & z-index lebih tinggi) begitu
+// halaman di-scroll -- komentar paling atas jadi kelihatan "macet"/kepotong
+// dan seperti tidak bisa discroll lagi, padahal scroll-nya jalan normal,
+// cuma kontennya ketutup navbar.
+//
+// Sesuai permintaan, sticky-nya dihapus BERSIH -- hanya properti yang
+// membuatnya "nempel" (position/top/z-index) dan dua properti yang cuma
+// relevan SELAMA sticky (background & border-bottom, dulu dipakai supaya
+// baris ini menutupi konten yang lewat di baliknya) yang dibuang. Padding
+// & transition dipertahankan apa adanya supaya spacing baris ini terhadap
+// kolom input & daftar komentar tidak berubah sama sekali.
 function injectCommentToggleStyles() {
   if (document.getElementById("nokt-comment-toggle-style")) return;
   const style = document.createElement("style");
@@ -1145,21 +1162,15 @@ function injectCommentToggleStyles() {
     .comment-preview{transition:opacity .2s ease, transform .2s ease}
     .comment-preview.preview-rotating{opacity:0;transform:translateY(-4px)}
 
-    /* ---- Sticky sub-header (jumlah komentar + sort) di dalam area
-       komentar yang terbuka ----
-       Elemen ini ditaruh SEBELUM #comment-list secara DOM (bukan anak dari
-       list yang di-scroll), jadi dia otomatis selalu terlihat begitu list
-       di-scroll ke bawah -- position:sticky ditambahkan sebagai jaring
-       pengaman ekstra di skenario/browser tertentu.
-       PENYEMPURNAAN: padding-left/right ditambahkan supaya teks "Komentar N"
-       dan tombol "Terbaru/Terlama" tidak mepet ke tepi kiri/kanan seperti
-       sebelumnya -- geseran kecil ke tengah, murni spacing. */
+    /* ---- Sub-header (jumlah komentar + sort) di dalam area komentar
+       yang terbuka ----
+       FIX: sticky (position/top/z-index) DIHAPUS TOTAL, begitu juga
+       background & border-bottom yang tadinya hanya dipakai untuk
+       menutupi konten yang lewat di belakangnya saat sticky. Baris ini
+       sekarang ikut scroll normal bersama daftar komentar, seperti
+       elemen biasa lainnya. Padding & transition dipertahankan supaya
+       spacing tidak berubah. */
     #comment-subheader{
-      position:sticky;
-      top:var(--site-header-h, 64px);
-      z-index:5;
-      background:var(--surface,#141416);
-      border-bottom:1px solid var(--border,#232326);
       padding-top:8px;
       padding-bottom:8px;
       padding-left:6px;
@@ -1419,11 +1430,12 @@ function updateCommentToggleHeader(topLevel) {
   // seperti semula -- tidak ada elemen yang dicerai-beraikan.
   const sortRow = sortNewest ? sortNewest.parentElement.parentElement : null;
 
-  // PENYEMPURNAAN: baris ini (jumlah komentar + tombol sort) dijadikan
-  // header sticky di dalam area komentar. Diberi id supaya bisa ditarget
-  // CSS (#comment-subheader di injectCommentToggleStyles) tanpa mengubah
-  // konten/child elemennya sama sekali -- masih sortNewest & sortOldest
-  // yang sama, masih countEl yang sama.
+  // sortRow (baris "Komentar N" + tombol sort) diberi id supaya bisa
+  // ditarget CSS (#comment-subheader di injectCommentToggleStyles) tanpa
+  // mengubah konten/child elemennya sama sekali -- masih sortNewest &
+  // sortOldest yang sama, masih countEl yang sama. FIX: baris ini sekarang
+  // TIDAK lagi sticky (lihat injectCommentToggleStyles), jadi ikut scroll
+  // normal bersama daftar komentar seperti elemen lain.
   if (sortRow) sortRow.id = "comment-subheader";
 
   if (!heading || !list) return;
@@ -1489,20 +1501,20 @@ function updateCommentToggleHeader(topLevel) {
   // PENYEMPURNAAN (dikembalikan sesuai permintaan): urutan penempatan
   // TETAP [box, sortRow, list] seperti semula -- kolom "Tulis komentar"
   // balik ke posisi PALING ATAS (persis kondisi awal). Yang jadi header
-  // sticky & scrollable hanyalah daftar komentar orang lain (sortRow +
-  // list), yang posisinya tepat di bawah kolom input, dan tetap berada
-  // di atas section "Video Terkait" (karena section komentar & aside
-  // Video Terkait adalah dua blok terpisah di watch.html -- lihat
+  // & scrollable hanyalah daftar komentar orang lain (sortRow + list,
+  // sekarang tanpa sticky), yang posisinya tepat di bawah kolom input, dan
+  // tetap berada di atas section "Video Terkait" (karena section komentar
+  // & aside Video Terkait adalah dua blok terpisah di watch.html -- lihat
   // .watch-layout -- urutan di dalam komentar tidak memengaruhi itu).
   [box, sortRow, list].forEach(el => { if (el) contentWrap.appendChild(el); });
 
   // ---------- Compact mode saat daftar komentar di-scroll ----------
   // Begitu user scroll #comment-list menjauh dari paling atas, header
-  // sticky & item komentar jadi lebih padat (padding dikurangi lewat CSS
-  // class "comments-scrolled", transisinya diatur CSS transition ~220-250ms
-  // di injectCommentToggleStyles). Balik normal lagi begitu scroll kembali
-  // ke posisi paling atas. Ini scroll INTERNAL milik #comment-list saja,
-  // TIDAK ada hubungannya dengan scroll halaman utama.
+  // (sekarang tidak lagi sticky) & item komentar jadi lebih padat (padding
+  // dikurangi lewat CSS class "comments-scrolled", transisinya diatur CSS
+  // transition ~220-250ms di injectCommentToggleStyles). Balik normal lagi
+  // begitu scroll kembali ke posisi paling atas. Ini scroll INTERNAL milik
+  // #comment-list saja, TIDAK ada hubungannya dengan scroll halaman utama.
   if (list) {
     list.addEventListener("scroll", () => {
       contentWrap.classList.toggle("comments-scrolled", list.scrollTop > 8);
@@ -1526,8 +1538,6 @@ function updateCommentToggleHeader(topLevel) {
         contentWrap.style.display = "";
         contentWrap.classList.add("is-open");
         contentWrap.style.maxHeight = "none";
-        // FIX (sticky header): lihat penjelasan di cabang animate+expanded
-        // di bawah -- overflow:visible wajib biar position:sticky jalan.
         contentWrap.style.setProperty("overflow", "visible", "important");
       } else {
         contentWrap.style.maxHeight = "0px";
@@ -1548,25 +1558,14 @@ function updateCommentToggleHeader(topLevel) {
       setTimeout(() => {
         if (commentSectionExpanded) {
           contentWrap.style.maxHeight = "none";
-          // FIX: #comment-expand-content punya overflow:hidden di CSS
-          // (dipakai buat meng-clip tinggi SELAMA animasi buka/tutup).
-          // Masalahnya overflow selain "visible" membuat elemen ini
-          // dianggap sebagai "batas scroll" oleh position:sticky pada
-          // #comment-subheader -- padahal wrapper ini sendiri TIDAK
-          // pernah discroll (cuma tumbuh tinggi ikut konten), jadi
-          // sticky-nya jadi buntu/gak pernah nempel. Begitu animasi buka
-          // selesai (tinggi sudah stabil), overflow dilepas jadi
-          // "visible" supaya sticky merujuk ke scroll HALAMAN yang
-          // sebenarnya -- persis seperti .site-header yang sudah sticky
-          // duluan di navbar atas.
+          // overflow:visible dipertahankan di sini walau sub-header sudah
+          // tidak sticky lagi -- tetap aman & tidak berdampak apa-apa,
+          // cuma memastikan konten tidak ter-clip kalau ada elemen lain
+          // di dalam wrapper ini yang butuh melebihi batas (mis. dropdown).
           contentWrap.style.setProperty("overflow", "visible", "important");
         }
       }, 320);
     } else {
-      // FIX: overflow dikembalikan ke "hidden" (hapus override visible)
-      // SEBELUM animasi menutup dimulai -- supaya isi komentar tetap
-      // ke-clip rapi mengikuti tinggi yang menyusut, bukan malah
-      // "meluber" kelihatan dulu baru kepotong belakangan.
       contentWrap.style.removeProperty("overflow");
       const current = contentWrap.scrollHeight;
       contentWrap.style.maxHeight = current + "px";
