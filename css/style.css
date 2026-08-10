@@ -265,12 +265,11 @@ body.comment-focus-active #comments-heading{
   transition:box-shadow .25s ease;
   /* FIX: jarak bawah kolom komentar (antara box "Tulis komentar" + tombol
      kirim, dengan baris "Komentar N / Terbaru / Terlama" di bawahnya)
-     dipersempit dari 14px -> 6px atas permintaan, biar tidak terlalu
-     renggang. Nilai ini murni spacing, tidak mengubah posisi/ukuran box
-     saat tidak fokus, dan tetap cukup supaya tombol Kirim (yang auto-grow
-     sedikit saat mengetik banyak baris) tidak nempel/numpuk ke baris
-     Terbaru/Terlama di bawahnya. */
-  margin-bottom:6px;
+     disamakan jadi 8px (sebelumnya sempat 14px lalu 6px) supaya PERSIS
+     sama dengan margin-top baris sort di watch.html dan margin-top
+     #comment-list -- tiga jarak (kirim→sort, sort→list) jadi simetris
+     dan konsisten, bukan cuma "cukup ruang" sembarangan. */
+  margin-bottom:8px;
 }
 .comment-box.is-focused{
   position:fixed;
@@ -301,10 +300,9 @@ body.comment-focus-active #comments-heading{
   display:inline-block;
 }
 
-/* FIX: jarak atas baris tombol sort komentar dipersempit dari 4px -> 2px,
-   selaras dengan margin-bottom .comment-box yang juga dipersempit di atas
-   -- total jarak antara kolom komentar & baris Terbaru/Terlama sekarang
-   lebih rapat, sesuai permintaan. */
+/* FIX: jarak atas baris tombol sort komentar, selaras dengan
+   margin-bottom .comment-box (8px) di atas -- total jarak antara kolom
+   komentar & baris Terbaru/Terlama sekarang simetris & rapat. */
 #sort-newest, #sort-oldest{
   margin-top:2px;
 }
