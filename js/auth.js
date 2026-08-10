@@ -9,15 +9,33 @@ import {
   setPersistence, browserLocalPersistence, browserSessionPersistence
 } from "./firebase-config.js";
 
+// ---------- Avatar default (untuk user yang daftar via email, tanpa foto Google) ----------
+const DEFAULT_AVATARS = [
+  "assets/default-avatars/avatar1.webp",
+  "assets/default-avatars/avatar2.webp",
+  "assets/default-avatars/avatar3.webp",
+  "assets/default-avatars/avatar4.webp",
+  "assets/default-avatars/avatar5.webp",
+];
+
+function pickRandomAvatar() {
+  const i = Math.floor(Math.random() * DEFAULT_AVATARS.length);
+  return DEFAULT_AVATARS[i];
+}
+
 async function ensureUserDoc(user) {
   const ref = doc(db, "users", user.uid);
   const snap = await getDoc(ref);
   if (!snap.exists()) {
+    // Kalau user belum punya foto (daftar via email), pilihkan salah satu
+    // avatar default secara acak. Kalau login via Google, photoURL dari
+    // Google tetap dipakai apa adanya.
+    const photoURL = user.photoURL || pickRandomAvatar();
     await setDoc(ref, {
       uid: user.uid,
       name: user.displayName || "User",
       email: user.email,
-      photoURL: user.photoURL || "",
+      photoURL,
       role: "user",
       emailVerified: user.emailVerified,
       createdAt: serverTimestamp()
@@ -45,7 +63,15 @@ export async function loginWithEmail(email, password) {
 
 export async function registerWithEmail(email, password, name) {
   const res = await createUserWithEmailAndPassword(auth, email, password);
-  await updateProfile(res.user, { displayName: name });
+
+  // Pilih avatar default acak, lalu simpan ke PROFIL FIREBASE AUTH juga
+  // (bukan cuma Firestore) supaya res.user.photoURL langsung terisi sejak
+  // awal. Ini penting karena renderAuthUI() di navbar membaca photoURL
+  // dari objek user Firebase Auth (via onAuthStateChanged), bukan dari
+  // Firestore -- kalau cuma diisi di Firestore, navbar tetap akan pecah.
+  const avatarURL = pickRandomAvatar();
+  await updateProfile(res.user, { displayName: name, photoURL: avatarURL });
+
   await sendEmailVerification(res.user);
   await ensureUserDoc(res.user);
   return res.user;
@@ -73,8 +99,12 @@ function renderAuthUI(loginBtn, profileBtn, state) {
     if (loginBtn) loginBtn.style.display = "none";
     if (profileBtn) {
       profileBtn.style.display = "flex";
+      // Fallback foto pakai salah satu avatar default milik sendiri
+      // (bukan via.placeholder.com) -- lebih cepat dimuat & tidak
+      // bergantung pada layanan pihak ketiga yang bisa lambat/mati.
+      const photo = state.photoURL || DEFAULT_AVATARS[0];
       profileBtn.innerHTML = `
-        <img src="${state.photoURL || 'https://via.placeholder.com/32'}" alt="">
+        <img src="${photo}" alt="" onerror="this.src='${DEFAULT_AVATARS[0]}'">
         <span>${state.displayName || 'Profil'}</span>`;
     }
   } else {
