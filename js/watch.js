@@ -915,7 +915,20 @@ const COMMENT_TEXTAREA_MAX_H = 100;
 // "min(32vh, 260px)" -- supaya kotak komentar langsung kerasa jadi
 // "kotak scroll" mulai dari tahap awal (3 komentar), bukan cuma
 // kelihatan scrollable setelah komentarnya banyak.
-const COMMENT_LIST_MAX_H = "min(32vh, 260px)";
+// PENYEMPURNAAN: dikecilkan lagi jadi "min(22vh, 190px)" -- kira-kira
+// setinggi 2 komentar biasa. Tujuannya: begitu tahap "3 komentar"
+// (COMMENT_FIRST_REVEAL) muncul, isinya SUDAH PASTI melebihi tinggi
+// kotak ini, jadi scrollbar langsung aktif seketika -- tidak perlu
+// nunggu klik "Lihat komentar lainnya" yang kedua kalinya, dan tidak
+// tergantung panjang/pendeknya teks komentar orang.
+// CATATAN: scrollbar itu sendiri cuma aturan browser -- browser HANYA
+// menampilkannya kalau konten di dalam box lebih tinggi dari box-nya.
+// Nggak ada cara "paksa aktif" tanpa membuat kondisi itu benar --
+// makanya box-nya sengaja dibuat lebih pendek dari isi 3 komentar,
+// bukan cuma dikasih properti overflow saja (overflow-y:auto sudah
+// terpasang sejak awal, tapi baru "kelihatan" kalau kondisi di atas
+// terpenuhi).
+const COMMENT_LIST_MAX_H = "min(22vh, 190px)";
 
 function resetTextareaHeight(el) {
   el.style.setProperty("height", COMMENT_TEXTAREA_MIN_H + "px", "important");
