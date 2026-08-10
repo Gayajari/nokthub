@@ -941,6 +941,28 @@ function setupCommentFocusZoom() {
   function deactivate() {
     if (!isActive) return;
     if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+
+    // FIX: lompatan scroll halaman setelah kirim komentar / blur textarea.
+    // Saat fokus, #video-meta & #comments-heading disembunyikan total
+    // (height:0) lewat class "comment-focus-active" di body. Begitu blur,
+    // class ini dicopot dan keduanya balik ke tinggi aslinya SECARA
+    // MENDADAK (tanpa transisi tinggi, cuma opacity yang bertransisi).
+    // Konten yang muncul lagi ini nambah tinggi TEPAT DI ATAS kolom
+    // komentar -- walau scrollY (dalam piksel) tidak diubah sama sekali,
+    // secara visual halaman kelihatan "melompat ke atas" (video/judul yang
+    // tadi disembunyikan jadi kelihatan lagi, komentar yang lagi dibaca
+    // user malah terdorong turun keluar dari posisi semula di layar).
+    //
+    // Fix: ukur tinggi dokumen SEBELUM & SESUDAH class dicopot, lalu
+    // tambahkan selisihnya ke scrollY -- supaya posisi baca user (komentar
+    // yang lagi dilihat, termasuk komentar baru yang baru saja terkirim)
+    // tetap persis di tempat yang sama di layar. Komentar baru tetap
+    // nambah di baris PALING ATAS daftar komentar (urutan Terbaru) dan
+    // mendorong komentar lain ke bawah SEPERTI BIASA -- yang dibenahi di
+    // sini murni supaya seluruh halaman tidak ikut "loncat" ke atas.
+    const scrollYBefore = window.scrollY;
+    const heightBefore = document.documentElement.scrollHeight;
+
     box.classList.remove("is-focused");
     document.body.classList.remove("comment-focus-active");
 
@@ -952,6 +974,16 @@ function setupCommentFocusZoom() {
       placeholder = null;
     }
     isActive = false;
+
+    // Paksa reflow supaya scrollHeight baru sudah pasti ter-update sebelum
+    // dibaca (perubahan tinggi video-meta/heading tidak pakai transisi,
+    // jadi seharusnya sudah instan, ini cuma jaga-jaga).
+    void document.documentElement.offsetHeight;
+    const heightAfter = document.documentElement.scrollHeight;
+    const delta = heightAfter - heightBefore;
+    if (delta !== 0) {
+      window.scrollTo(0, scrollYBefore + delta);
+    }
   }
 
   input.addEventListener("focus", activate);
