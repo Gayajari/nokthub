@@ -482,6 +482,16 @@ function renderCommentsList() {
   const topLevel = allComments.filter(c => !c.parentId);
   const visible = topLevel.slice(0, commentDisplayLimit);
 
+  // FIX: list.innerHTML diganti TOTAL tiap kali ada snapshot Firestore baru
+  // (komentar baru, like/dislike, dari diri sendiri maupun user lain). Kalau
+  // ini kejadian PAS jari user lagi nge-scroll list ini di HP, browser
+  // langsung memutus momentum scroll-nya (DOM-nya diganti di bawah jari) --
+  // user harus gesek ulang beberapa kali sampai "kepegang" lagi, kelihatan
+  // seperti macet/diem dulu baru gerak. Fix: simpan posisi scroll SEBELUM
+  // innerHTML diganti, lalu kembalikan PERSIS setelahnya -- render tetap
+  // sama seperti biasa, cuma posisi baca user tidak ikut ke-reset/terganggu.
+  const prevScrollTop = list.scrollTop;
+
   list.innerHTML = visible.map(c => renderComment(c, allComments)).join("")
     || `<p style="color:var(--text-muted)">Belum ada komentar.<br>Tulis komentar pertama...</p>`;
 
@@ -492,6 +502,8 @@ function renderCommentsList() {
         Muat lebih banyak (${sisa} lagi)
       </button>`;
   }
+
+  list.scrollTop = prevScrollTop;
 
   // Comment count & preview: reuse topLevel yang sudah dihitung di atas,
   // TIDAK ada query tambahan ke Firestore.
