@@ -467,17 +467,6 @@ document.getElementById("comment-list").addEventListener("click", (e) => {
 document.querySelectorAll("#sort-newest, #sort-oldest").forEach(btn => {
   btn.addEventListener("click", () => {
     commentSortOrder = btn.dataset.sort;
-    // FIX: sebelumnya commentDisplayLimit direset ke 1 di sini -- jadi
-    // kalau user LAGI di tahap "3 komentar" atau lebih (sudah pernah
-    // klik "Lihat komentar lainnya"), ganti Terbaru/Terlama bikin
-    // tampilan seolah "balik ke awal" (cuma 1 komentar lagi). Padahal
-    // yang diinginkan cuma ISI-nya yang diurutkan ulang, TAHAP/jumlah
-    // yang lagi ditampilkan harus tetap sama seperti sebelum diklik.
-    // Sekarang commentDisplayLimit TIDAK disentuh sama sekali di sini
-    // -- listenComments() di bawah cuma ganti urutan datanya
-    // (query orderBy baru), renderCommentsList() lalu tetap pakai
-    // commentDisplayLimit yang sudah ada (3, 8, 13, dst -- sesuai
-    // tahap user saat ini).
     document.querySelectorAll("#sort-newest, #sort-oldest").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     listenComments();
@@ -620,13 +609,6 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
 });
 
 document.getElementById("comment-list").addEventListener("click", async (e) => {
-  // --- Ketuk RUANG KOSONG di baris komentar -> tutup section komentar ---
-  // Dicek PALING AWAL, sebelum aksi lain: kalau yang diklik PERSIS elemen
-  // ".comment-body" itu sendiri (bukan salah satu anak di dalamnya seperti
-  // teks/tombol Balas/Hapus/reaksi -- itu semua elemen terpisah, jadi
-  // e.target-nya beda), berarti user nge-tap area kosong di sebelah kanan
-  // baris komentar. Itu sinyal "sudah selesai baca, mau nutup" -- jadi
-  // langsung nutup komentar, sama seperti nge-klik tombol "Tutup Komentar".
   if (e.target.classList.contains("comment-body") && closeCommentsSection) {
     closeCommentsSection();
     return;
@@ -763,19 +745,6 @@ function setupCommentFocusZoom() {
   let isActive = false;
   let placeholder = null;
   let rafId = null;
-  // FIX (penyebab video "kedorong ke atas" tiap kirim komentar): sebelumnya
-  // di sini disimpan cachedRevealHeight (tinggi #video-meta + #comments-heading)
-  // yang lalu DITAMBAHKAN ke posisi scroll lama saat kolom komentar ditutup.
-  // Itu itungan tambahan yang gampang meleset kalau tinggi elemen berubah
-  // dikit aja antara activate() dan deactivate() -- hasilnya scroll
-  // overshoot, video kelihatan "dipaksa naik/nongol" padahal seharusnya diem.
-  //
-  // Sekarang TIDAK ada itungan tinggi sama sekali. Yang disimpan cuma
-  // posisi scroll PERSIS sebelum kolom komentar difokuskan (scrollYAtActivate),
-  // dan itu yang dibalikin PERSIS apa adanya -- tidak ditambah/dikurangi
-  // apapun. Jadi halaman dijamin balik ke posisi yang SAMA PERSIS seperti
-  // sebelum diklik, terlepas dari elemen apapun yang berubah tinggi selama
-  // kolom komentar aktif.
   let scrollYAtActivate = 0;
 
   function positionBar() {
@@ -800,9 +769,6 @@ function setupCommentFocusZoom() {
   function activate() {
     if (input.disabled || isActive) return;
 
-    // Simpan posisi scroll PERSIS di sini, sebelum satu pun style/class
-    // diubah -- inilah "titik nol" yang akan dikembalikan lagi di
-    // deactivate(), apa adanya, tanpa dihitung ulang dari tinggi elemen.
     scrollYAtActivate = window.scrollY;
 
     const rect = box.getBoundingClientRect();
@@ -852,20 +818,6 @@ function setupCommentFocusZoom() {
       window.scrollTo(0, scrollYAtActivate);
     };
 
-    // FIX (debounce): sebelumnya kompensasi scroll langsung dijalankan di
-    // event "resize" visualViewport yang PERTAMA muncul. Masalahnya,
-    // penutupan keyboard sering memicu beberapa kali resize berturut-turut
-    // (animasinya bertahap) -- kalau kompensasi dijalankan di resize
-    // pertama (yang masih di tengah animasi/belum stabil), browser masih
-    // lanjut menggeser sendiri sesudahnya -> halaman kelihatan "geser
-    // berkali-kali" tiap kirim komentar.
-    //
-    // Sekarang pakai pola debounce: setiap ada resize baru, timer direset.
-    // Kompensasi baru dijalankan setelah TIDAK ada resize baru selama
-    // 120ms berturut-turut -- menandakan visualViewport benar-benar sudah
-    // diam/stabil. Fallback 450ms tetap dijaga untuk kondisi
-    // visualViewport tidak pernah resize sama sekali (desktop / keyboard
-    // tidak muncul).
     if (window.visualViewport) {
       let settleTimer = null;
       let applied = false;
@@ -921,23 +873,6 @@ commentZoomController = setupCommentFocusZoom();
 
 const COMMENT_TEXTAREA_MIN_H = 38;
 const COMMENT_TEXTAREA_MAX_H = 100;
-// PENYEMPURNAAN: dikecilkan dari "min(50vh, 420px)" jadi
-// "min(32vh, 260px)" -- supaya kotak komentar langsung kerasa jadi
-// "kotak scroll" mulai dari tahap awal (3 komentar), bukan cuma
-// kelihatan scrollable setelah komentarnya banyak.
-// PENYEMPURNAAN: dikecilkan lagi jadi "min(22vh, 190px)" -- kira-kira
-// setinggi 2 komentar biasa. Tujuannya: begitu tahap "3 komentar"
-// (COMMENT_FIRST_REVEAL) muncul, isinya SUDAH PASTI melebihi tinggi
-// kotak ini, jadi scrollbar langsung aktif seketika -- tidak perlu
-// nunggu klik "Lihat komentar lainnya" yang kedua kalinya, dan tidak
-// tergantung panjang/pendeknya teks komentar orang.
-// CATATAN: scrollbar itu sendiri cuma aturan browser -- browser HANYA
-// menampilkannya kalau konten di dalam box lebih tinggi dari box-nya.
-// Nggak ada cara "paksa aktif" tanpa membuat kondisi itu benar --
-// makanya box-nya sengaja dibuat lebih pendek dari isi 3 komentar,
-// bukan cuma dikasih properti overflow saja (overflow-y:auto sudah
-// terpasang sejak awal, tapi baru "kelihatan" kalau kondisi di atas
-// terpenuhi).
 const COMMENT_LIST_MAX_H = "min(22vh, 190px)";
 
 function resetTextareaHeight(el) {
@@ -970,13 +905,6 @@ function autoGrowTextarea(el) {
   if (list) {
     list.style.setProperty("max-height", COMMENT_LIST_MAX_H, "important");
     list.style.setProperty("overflow-y", "auto", "important");
-    // FIX (permintaan: "support scrolling global"): sebelumnya
-    // overscroll-behavior:contain dipasang supaya geseran di dalam
-    // daftar komentar TIDAK lanjut/"bocor" ke scroll halaman utama saat
-    // sudah mentok atas/bawah. Sekarang property itu DIHAPUS -- begitu
-    // geseran di dalam kotak komentar mentok (baik dari komentar
-    // maupun ruang kosong di sampingnya), geserannya lanjut otomatis ke
-    // scroll halaman, bukan berhenti/kejebak di dalam kotak kecil ini.
     list.style.setProperty("-webkit-overflow-scrolling", "touch", "important");
   }
 })();
@@ -1078,19 +1006,48 @@ function injectCommentToggleStyles() {
     .comment-toggle-header:focus-visible{outline:2px solid var(--accent,#ff7a00);outline-offset:2px;border-radius:4px}
     .comment-toggle-heading-row{display:flex;align-items:center;gap:8px}
     .comment-toggle-arrow{font-size:.7em;transition:transform .2s ease;display:inline-block}
-    .comment-preview{font-size:.78rem;line-height:1.35;color:var(--text-muted);max-width:100%;
+
+    /* ---------- Preview komentar: kartu profil + nama + tanggal di atas, teks di bawah ---------- */
+    .comment-preview-card{
+      display:flex;gap:10px;align-items:flex-start;
+      max-width:100%;margin-top:4px;padding:8px 10px;
+      border-radius:10px;
+      background:var(--surface,#151517);
+      border:1px solid var(--border,#232326);
+      transform-style:preserve-3d;
+      transition:transform .25s cubic-bezier(.22,1,.36,1), box-shadow .25s ease, border-color .25s ease;
+      will-change:transform;
+    }
+    .comment-preview-card:hover,
+    .comment-preview-card.tilt-active{
+      border-color:color-mix(in srgb, var(--accent,#ff7a00) 45%, var(--border,#232326));
+      box-shadow:0 10px 24px -8px rgba(0,0,0,.55), 0 0 0 1px rgba(255,122,26,.08) inset;
+    }
+    .comment-preview-avatar{
+      width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;
+      border:1px solid var(--border,#2a2a2d);
+      transform:translateZ(18px);
+      transition:transform .25s cubic-bezier(.22,1,.36,1);
+    }
+    .comment-preview-body{flex:1;min-width:0;transform:translateZ(8px)}
+    .comment-preview-meta{
+      display:flex;align-items:baseline;gap:6px;font-size:.78rem;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    }
+    .comment-preview-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .comment-preview-date{color:var(--text-muted);font-size:.7rem;flex-shrink:0}
+    .comment-preview-text{
+      font-size:.78rem;line-height:1.35;color:var(--text-muted);max-width:100%;
       overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;
-      -webkit-box-orient:vertical;overflow-wrap:anywhere;word-break:break-word;margin-top:2px}
-    .comment-expand-content{overflow:hidden;max-height:0;opacity:0;
-      transition:max-height .28s ease, opacity .22s ease}
-    .comment-expand-content.is-open{opacity:1}
+      -webkit-box-orient:vertical;overflow-wrap:anywhere;word-break:break-word;margin-top:2px
+    }
+    .comment-preview-card{opacity:1;transform:translateY(0) rotateX(0) rotateY(0);}
+    .comment-preview-card.preview-rotating{opacity:0;transform:translateY(-4px) rotateX(0) rotateY(0);}
+
     @keyframes nokt-comment-pulse{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
     .comment-toggle-header.pulse #comment-count,
     .comment-toggle-header.pulse #comment-count-header,
-    .comment-toggle-header.pulse .comment-preview{animation: nokt-comment-pulse 1.3s ease 1}
-
-    .comment-preview{transition:opacity .2s ease, transform .2s ease}
-    .comment-preview.preview-rotating{opacity:0;transform:translateY(-4px)}
+    .comment-toggle-header.pulse .comment-preview-card{animation: nokt-comment-pulse 1.3s ease 1}
 
     #comment-subheader{
       padding-top:8px;
@@ -1099,6 +1056,9 @@ function injectCommentToggleStyles() {
       padding-right:6px;
       transition:padding .25s ease;
     }
+    .comment-expand-content{overflow:hidden;max-height:0;opacity:0;
+      transition:max-height .28s ease, opacity .22s ease}
+    .comment-expand-content.is-open{opacity:1}
 
     #comment-expand-content.comments-scrolled #comment-subheader{
       padding-top:4px;
@@ -1159,16 +1119,45 @@ function getNewestTopLevelComment(topLevel) {
 let commentSectionExpanded = false;
 let lastKnownCommentCount = null;
 let syncCommentExpandHeight = null;
-// Diisi di dalam setupCollapsibleCommentsSection() -- dipanggil dari
-// listener klik #comment-list (di luar IIFE itu) supaya nge-tap ruang
-// kosong di baris komentar (class "comment-body") bisa langsung nutup
-// section komentar, bukan cuma lewat tombol "Tutup Komentar"/header.
 let closeCommentsSection = null;
 
 let previewCandidates = [];
 let previewCommentId = null;
 let previewTimer = null;
-const PREVIEW_ROTATE_MS = 3500;
+const PREVIEW_ROTATE_MS = 2000;
+
+// ---------- Efek 3D hover/tilt untuk kartu preview komentar ----------
+// Kartu preview dimiringkan ("tilt") mengikuti posisi kursor -- efek
+// pembeda visual dari daftar komentar biasa (yang statis/flat). Hanya
+// aktif untuk pointer tipe mouse (fine pointer), supaya di layar
+// sentuh tidak ada gesture yang "kejegal" oleh efek ini.
+const PREVIEW_TILT_MAX_DEG = 8;
+let previewTiltBound = false;
+
+function bindPreviewTilt() {
+  const card = document.getElementById("comment-preview");
+  if (!card || previewTiltBound) return;
+  previewTiltBound = true;
+
+  const supportsHover = window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+  if (!supportsHover) return;
+
+  card.addEventListener("mousemove", (e) => {
+    const rect = card.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / rect.width;   // 0..1
+    const py = (e.clientY - rect.top) / rect.height;    // 0..1
+    const rotateY = (px - 0.5) * 2 * PREVIEW_TILT_MAX_DEG;
+    const rotateX = (0.5 - py) * 2 * PREVIEW_TILT_MAX_DEG;
+    card.style.setProperty("transform",
+      `perspective(600px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-1px)`);
+  });
+
+  card.addEventListener("mouseenter", () => card.classList.add("tilt-active"));
+  card.addEventListener("mouseleave", () => {
+    card.classList.remove("tilt-active");
+    card.style.setProperty("transform", "perspective(600px) rotateX(0deg) rotateY(0deg)");
+  });
+}
 
 function buildPreviewCandidates(topLevel) {
   return [...topLevel].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
@@ -1177,15 +1166,28 @@ function buildPreviewCandidates(topLevel) {
 function renderCommentPreview(comment, animate) {
   const previewEl = document.getElementById("comment-preview");
   if (!previewEl || !comment) return;
-  const html = `"${escapeHtml(comment.text)}"<br><span style="font-weight:600">${escapeHtml(comment.userName || 'User')}</span> · ${formatCommentDate(comment.createdAt)}`;
+
+  const avatarSrc = comment.userPhoto || 'https://via.placeholder.com/34';
+  const html = `
+    <img class="comment-preview-avatar" src="${avatarSrc}" alt="" loading="lazy">
+    <div class="comment-preview-body">
+      <div class="comment-preview-meta">
+        <span class="comment-preview-name">${escapeHtml(comment.userName || 'User')}</span>
+        <span class="comment-preview-date">· ${formatCommentDate(comment.createdAt)}</span>
+      </div>
+      <div class="comment-preview-text">${escapeHtml(comment.text)}</div>
+    </div>`;
+
   if (animate === false) {
     previewEl.innerHTML = html;
+    bindPreviewTilt();
     return;
   }
   previewEl.classList.add("preview-rotating");
   setTimeout(() => {
     previewEl.innerHTML = html;
     previewEl.classList.remove("preview-rotating");
+    bindPreviewTilt();
   }, 200);
 }
 
@@ -1302,7 +1304,7 @@ function updateCommentToggleHeader(topLevel) {
 
   const previewEl = document.createElement("div");
   previewEl.id = "comment-preview";
-  previewEl.className = "comment-preview";
+  previewEl.className = "comment-preview-card";
   previewEl.style.display = "none";
   headerWrap.appendChild(previewEl);
 
@@ -1312,13 +1314,6 @@ function updateCommentToggleHeader(topLevel) {
   list.parentNode.insertBefore(contentWrap, box || sortRow || list);
   [box, sortRow, list].forEach(el => { if (el) contentWrap.appendChild(el); });
 
-  // ---- Tombol "Tutup Komentar" di PALING BAWAH daftar ----
-  // Toggle utama (headerWrap) ada di paling atas -- kalau user sudah
-  // scroll jauh ke bawah buat baca komentar publik, mereka harus scroll
-  // balik ke atas dulu buat nutup. Tombol ini kasih jalan pintas: dari
-  // manapun posisi scroll mereka di dalam daftar, 1x klik langsung
-  // menutup + halaman digeser halus balik ke section komentar (bukan ke
-  // atas video/halaman), biar tidak kelihatan "nyasar" tiba-tiba.
   const closeBtn = document.createElement("button");
   closeBtn.id = "btn-close-comments";
   closeBtn.className = "share-btn";
@@ -1327,14 +1322,8 @@ function updateCommentToggleHeader(topLevel) {
   closeBtn.style.cssText = "width:100%;margin-top:12px";
   contentWrap.appendChild(closeBtn);
 
-  // Fungsi tutup dipakai ulang oleh: tombol ini, DAN listener klik
-  // "ruang kosong" (.comment-body) di #comment-list -- lihat variabel
-  // global closeCommentsSection yang di-assign di sini.
   function doCloseComments() {
     applyState(false, true);
-    // Scroll halus balik ke posisi heading "Komentar", bukan ke atas
-    // halaman -- supaya user tetap berada di konteks yang sama (dekat
-    // video), cuma daftar komentarnya yang tertutup.
     headerWrap.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   closeCommentsSection = doCloseComments;
@@ -1399,7 +1388,12 @@ function updateCommentToggleHeader(topLevel) {
     }
   };
 
-  headerWrap.addEventListener("click", () => applyState(!commentSectionExpanded, true));
+  headerWrap.addEventListener("click", (e) => {
+    // Kalau klik terjadi di dalam kartu preview (efek tilt aktif di
+    // situ), tetap toggle expand/collapse -- kartu preview cuma efek
+    // visual, bukan tombol terpisah.
+    applyState(!commentSectionExpanded, true);
+  });
   headerWrap.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
