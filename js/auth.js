@@ -10,7 +10,7 @@ import {
 } from "./firebase-config.js";
 
 // ---------- Avatar default (untuk user yang daftar via email, tanpa foto Google) ----------
-const DEFAULT_AVATARS = [
+export const DEFAULT_AVATARS = [
   "assets/default-avatars/avatar1.webp",
   "assets/default-avatars/avatar2.webp",
   "assets/default-avatars/avatar3.webp",
@@ -18,19 +18,24 @@ const DEFAULT_AVATARS = [
   "assets/default-avatars/avatar5.webp",
 ];
 
-function pickRandomAvatar() {
-  const i = Math.floor(Math.random() * DEFAULT_AVATARS.length);
-  return DEFAULT_AVATARS[i];
+// Pilih avatar SECARA KONSISTEN berdasarkan uid -- 1 user akan selalu
+// dapat avatar yang sama setiap kali (bukan ganti-ganti tiap refresh),
+// tanpa perlu nyimpen index-nya secara terpisah. Dipakai baik untuk user
+// baru (saat daftar) maupun sebagai fallback tampilan untuk user lama yang
+// datanya belum punya photoURL sama sekali.
+export function getAvatarForUid(uid) {
+  let hash = 0;
+  for (let i = 0; i < uid.length; i++) {
+    hash = (hash * 31 + uid.charCodeAt(i)) >>> 0;
+  }
+  return DEFAULT_AVATARS[hash % DEFAULT_AVATARS.length];
 }
 
 async function ensureUserDoc(user) {
   const ref = doc(db, "users", user.uid);
   const snap = await getDoc(ref);
   if (!snap.exists()) {
-    // Kalau user belum punya foto (daftar via email), pilihkan salah satu
-    // avatar default secara acak. Kalau login via Google, photoURL dari
-    // Google tetap dipakai apa adanya.
-    const photoURL = user.photoURL || pickRandomAvatar();
+    const photoURL = user.photoURL || getAvatarForUid(user.uid);
     await setDoc(ref, {
       uid: user.uid,
       name: user.displayName || "User",
@@ -43,9 +48,6 @@ async function ensureUserDoc(user) {
   }
 }
 
-// "Ingat saya" dicentang -> tetap login walau browser ditutup (localPersistence).
-// Tidak dicentang -> logout otomatis begitu tab/browser ditutup (sessionPersistence).
-// Panggil ini SEBELUM loginWithEmail() atau loginWithGoogle().
 export async function setLoginPersistence(remember) {
   await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
 }
@@ -64,12 +66,9 @@ export async function loginWithEmail(email, password) {
 export async function registerWithEmail(email, password, name) {
   const res = await createUserWithEmailAndPassword(auth, email, password);
 
-  // Pilih avatar default acak, lalu simpan ke PROFIL FIREBASE AUTH juga
-  // (bukan cuma Firestore) supaya res.user.photoURL langsung terisi sejak
-  // awal. Ini penting karena renderAuthUI() di navbar membaca photoURL
-  // dari objek user Firebase Auth (via onAuthStateChanged), bukan dari
-  // Firestore -- kalau cuma diisi di Firestore, navbar tetap akan pecah.
-  const avatarURL = pickRandomAvatar();
+  // Avatar dipilih konsisten dari uid, lalu disimpan ke profil Firebase
+  // Auth juga -- supaya res.user.photoURL langsung terisi sejak awal.
+  const avatarURL = getAvatarForUid(res.user.uid);
   await updateProfile(res.user, { displayName: name, photoURL: avatarURL });
 
   await sendEmailVerification(res.user);
@@ -91,18 +90,14 @@ export function watchAuthState(callback) {
 
 // ---------- Header UI binding (dipakai di semua halaman) ----------
 
-// Render tombol Login / Profil ke DOM berdasarkan sebuah "state" ringkas:
-// { loggedIn: true/false, displayName, photoURL }. Dipakai baik oleh versi
-// cache (instan, dari localStorage) maupun versi asli (dari Firebase).
 function renderAuthUI(loginBtn, profileBtn, state) {
   if (state.loggedIn) {
     if (loginBtn) loginBtn.style.display = "none";
     if (profileBtn) {
       profileBtn.style.display = "flex";
-      // Fallback foto pakai salah satu avatar default milik sendiri
-      // (bukan via.placeholder.com) -- lebih cepat dimuat & tidak
-      // bergantung pada layanan pihak ketiga yang bisa lambat/mati.
-      const photo = state.photoURL || DEFAULT_AVATARS[0];
+      // Kalau photoURL kosong (user lama sebelum fitur ini ada), pakai
+      // avatar konsisten berdasarkan uid -- bukan avatar acak tiap render.
+      const photo = state.photoURL || (state.uid ? getAvatarForUid(state.uid) : DEFAULT_AVATARS[0]);
       profileBtn.innerHTML = `
         <img src="${photo}" alt="" onerror="this.src='${DEFAULT_AVATARS[0]}'">
         <span>${state.displayName || 'Profil'}</span>`;
@@ -111,13 +106,10 @@ function renderAuthUI(loginBtn, profileBtn, state) {
     if (loginBtn) loginBtn.style.display = "inline-block";
     if (profileBtn) profileBtn.style.display = "none";
   }
-  // Munculkan lagi elemen yang sempat disembunyikan lewat script anti-flash
-  // di <head> (lihat komentar "Anti-flash" di tiap file HTML).
   if (loginBtn) loginBtn.style.visibility = "visible";
   if (profileBtn) profileBtn.style.visibility = "visible";
 }
 
-// ---------- Terapkan status login dari cache dulu (instan) ----------
 function applyCachedAuthState() {
   const loginBtn = document.getElementById("login-btn");
   const profileBtn = document.getElementById("profile-btn");
@@ -126,7 +118,7 @@ function applyCachedAuthState() {
     cached = JSON.parse(localStorage.getItem("nokt_auth_cache") || "null");
   } catch (e) { cached = null; }
 
-  if (!cached) return; // belum ada cache (kunjungan pertama) -> biarkan tampilan default HTML apa adanya
+  if (!cached) return;
   renderAuthUI(loginBtn, profileBtn, cached);
 }
 
@@ -134,13 +126,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const loginBtn = document.getElementById("login-btn");
   const profileBtn = document.getElementById("profile-btn");
 
-  // 1) Terapkan dulu dari cache -> instan, minim kedip.
   applyCachedAuthState();
 
-  // 2) Baru dengarkan status asli dari Firebase.
   watchAuthState((user) => {
     const state = user
-      ? { loggedIn: true, displayName: user.displayName || "", photoURL: user.photoURL || "" }
+      ? { loggedIn: true, uid: user.uid, displayName: user.displayName || "", photoURL: user.photoURL || "" }
       : { loggedIn: false };
 
     try { localStorage.setItem("nokt_auth_cache", JSON.stringify(state)); } catch (e) {}
