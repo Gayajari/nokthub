@@ -467,7 +467,17 @@ document.getElementById("comment-list").addEventListener("click", (e) => {
 document.querySelectorAll("#sort-newest, #sort-oldest").forEach(btn => {
   btn.addEventListener("click", () => {
     commentSortOrder = btn.dataset.sort;
-    commentDisplayLimit = 1;
+    // FIX: sebelumnya commentDisplayLimit direset ke 1 di sini -- jadi
+    // kalau user LAGI di tahap "3 komentar" atau lebih (sudah pernah
+    // klik "Lihat komentar lainnya"), ganti Terbaru/Terlama bikin
+    // tampilan seolah "balik ke awal" (cuma 1 komentar lagi). Padahal
+    // yang diinginkan cuma ISI-nya yang diurutkan ulang, TAHAP/jumlah
+    // yang lagi ditampilkan harus tetap sama seperti sebelum diklik.
+    // Sekarang commentDisplayLimit TIDAK disentuh sama sekali di sini
+    // -- listenComments() di bawah cuma ganti urutan datanya
+    // (query orderBy baru), renderCommentsList() lalu tetap pakai
+    // commentDisplayLimit yang sudah ada (3, 8, 13, dst -- sesuai
+    // tahap user saat ini).
     document.querySelectorAll("#sort-newest, #sort-oldest").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     listenComments();
