@@ -10,21 +10,6 @@ import { renderPlayer, trackResumePosition } from "./player.js";
 import { escapeHtml, renderVideoCard, computePopularScore, buildThumbChain } from "./app.js";
 
 // ---------- FIX: header komentar "macet"/ketutup navbar ----------
-// Sebelumnya #comment-subheader (baris "Komentar N" + Terbaru/Terlama) dan
-// .site-header (navbar paling atas) SAMA-SAMA position:sticky;top:0. Karena
-// top-nya sama-sama 0, keduanya rebutan posisi paling atas viewport -- begitu
-// halaman di-scroll, header komentar nempel TEPAT DI BELAKANG navbar (bukan
-// di bawahnya), jadi komentar paling atas kelihatan seperti "macet"/kepotong
-// dan terkesan tidak bisa discroll lagi ke atas, padahal scroll-nya jalan,
-// cuma kontennya ketutup navbar yang z-index-nya lebih tinggi.
-//
-// Fix: ukur tinggi asli .site-header (bisa beda-beda tiap device -- search
-// box bisa wrap ke baris ke-2 di layar sangat sempit) dan simpan sebagai CSS
-// variable --site-header-h. Variable ini TETAP dipertahankan karena masih
-// dipakai oleh aside "Video Terkait" (lihat style.css) untuk sticky
-// positioning-nya sendiri -- tidak ada hubungannya lagi dengan komentar
-// sekarang karena sticky header komentar sudah dihapus total (lihat
-// injectCommentToggleStyles di bawah).
 function updateSiteHeaderHeightVar() {
   const header = document.querySelector(".site-header");
   if (!header) return;
@@ -35,8 +20,6 @@ updateSiteHeaderHeightVar();
 window.addEventListener("resize", updateSiteHeaderHeightVar);
 window.addEventListener("orientationchange", () => setTimeout(updateSiteHeaderHeightVar, 150));
 if (document.fonts && document.fonts.ready) {
-  // Font custom (Space Grotesk dkk) bisa mengubah tinggi navbar sedikit
-  // setelah selesai load -- ukur ulang sekali begitu font siap.
   document.fonts.ready.then(updateSiteHeaderHeightVar);
 }
 
@@ -44,13 +27,12 @@ const params = new URLSearchParams(window.location.search);
 const videoId = params.get("id");
 let currentUser = null;
 let videoData = null;
-let unsubscribeStats = null; // listener realtime view/like, dibersihkan saat pindah halaman
+let unsubscribeStats = null;
 
-const MIN_WATCH_SECONDS = 10; // minimal detik nonton sebelum view dihitung
-const VIEW_WINDOW_MS = 5 * 60 * 1000; // jeda 5 menit sebelum view dihitung ulang (sebelumnya 15 menit / 1 jam / 24 jam)
-let viewCounted = false; // biar countView cuma jalan sekali per sesi nonton
+const MIN_WATCH_SECONDS = 10;
+const VIEW_WINDOW_MS = 5 * 60 * 1000;
+let viewCounted = false;
 
-// ---------- Ikon SVG (dipakai ulang untuk tombol like video & like/dislike komentar) ----------
 const ICON_THUMB_UP = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>`;
 const ICON_THUMB_DOWN = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg>`;
 
@@ -58,10 +40,9 @@ onAuthStateChanged(auth, (u) => {
   currentUser = u;
   checkLikeState();
   updateCommentBoxState();
-  loadUserReactions(); // sinkronkan status like/dislike komentar & reply sesuai user yang login
+  loadUserReactions();
 });
 
-// Aktifkan/nonaktifkan kotak komentar sesuai status login.
 function updateCommentBoxState() {
   const input = document.getElementById("comment-input");
   const btn = document.getElementById("btn-comment");
@@ -71,19 +52,9 @@ function updateCommentBoxState() {
   input.disabled = !loggedIn;
   input.placeholder = loggedIn ? "Tulis komentar..." : "Tulis komentar...";
   if (hint) hint.style.display = loggedIn ? "none" : "inline";
-  // PENYEMPURNAAN: tombol kirim (sekarang ikon SVG bulat) punya 2 syarat
-  // aktif -- harus login DAN teks tidak kosong. Textarea cukup dikontrol
-  // oleh login saja seperti semula; state disabled tombol didelegasikan
-  // ke refreshSendButtonState() biar satu sumber kebenaran (lihat di bawah).
   refreshSendButtonState();
 }
 
-// ---------- State tombol kirim (ikon SVG bulat) ----------
-// Tombol AKTIF hanya kalau: user sudah login DAN teks komentar tidak
-// kosong/spasi doang. Dipanggil tiap kali status login berubah
-// (updateCommentBoxState) maupun tiap user mengetik (listener "input" di
-// setupCompactCommentLayout). Murni UI state -- tidak menyentuh Firestore
-// atau logic kirim komentar itu sendiri.
 function refreshSendButtonState() {
   const input = document.getElementById("comment-input");
   const btn = document.getElementById("btn-comment");
@@ -136,7 +107,6 @@ function renderVideoInfo() {
     descEl.style.display = "";
     setupCollapsibleDescription(descEl, v.description);
   } else {
-    // Gak ada deskripsi -> sembunyikan total, gak nyisain ruang kosong.
     descEl.style.display = "none";
     descEl.textContent = "";
     const oldToggle = document.getElementById("btn-toggle-desc");
@@ -176,7 +146,6 @@ function renderVideoInfo() {
   });
 }
 
-// ---------- Realtime stats (view/like) tanpa reload ----------
 function listenVideoStats() {
   if (unsubscribeStats) unsubscribeStats();
   unsubscribeStats = onSnapshot(doc(db, "videos", videoId), (snap) => {
@@ -199,7 +168,6 @@ async function saveHistory(position) {
   }, { merge: true });
 }
 
-// ---------- View counting ----------
 async function countView() {
   try {
     const anonId = getAnonId();
@@ -228,7 +196,6 @@ function getAnonId() {
   return id;
 }
 
-// ---------- Like video ----------
 async function checkLikeState() {
   const btn = document.getElementById("btn-like");
   if (!btn) return;
@@ -261,7 +228,6 @@ document.getElementById("btn-like").addEventListener("click", async () => {
   }
 });
 
-// ---------- Share ----------
 document.querySelectorAll("[data-share]").forEach(btn => {
   btn.addEventListener("click", async () => {
     const url = window.location.href;
@@ -292,21 +258,6 @@ document.querySelectorAll("[data-share]").forEach(btn => {
   });
 });
 
-// ---------- Related videos ----------
-// BASE ALGORITHM (dipertahankan): kandidat utama tetap dari query lama —
-// category == videoData.category, status == "publish". Query ini TIDAK diganti.
-//
-// PENYEMPURNAAN yang ditambahkan (kompatibel, bukan pengganti):
-//   1. Pool kandidat diperbesar jadi 24 (bukan langsung 6) sebagai bahan ranking & rotation.
-//   2. Fallback ke tag (array-contains-any) & video terbaru kalau kandidat kategori kurang
-//      (hanya jalan kalau kandidat memang kurang -- tidak ada query tambahan yang tidak perlu).
-//   3. Ranking relevansi: kategori cocok + overlap tag + computePopularScore (skor lama di
-//      app.js dipakai ulang, bukan bikin skor baru dari nol) + bonus kecil video baru.
-//   4. Rotation/exposure: 2 slot teratas = paling relevan (stabil, prioritas utama tetap
-//      dari algoritma lama). 4 slot sisanya dipilih weighted-random dari kandidat berikutnya,
-//      seed per sesi+video -> related tetap sama selama 1 kunjungan, berganti di kunjungan lain.
-//   5. Bebas duplikat & exclude video aktif dijaga di satu titik (Map "seen") sebelum masuk
-//      scoring/rotation, jadi tidak mungkin video yang sedang ditonton lolos ke slot manapun.
 const RELATED_SHOW_COUNT = 6;
 const RELATED_FIXED_TOP = 2;
 const RELATED_CANDIDATE_POOL = 24;
@@ -327,8 +278,6 @@ function seededRandom(seedStr) {
   };
 }
 
-// Token rotation per tab (sessionStorage) -> urutan konsisten selama sesi,
-// otomatis beda di sesi/kunjungan berikutnya.
 function getRotationSeed() {
   let token = sessionStorage.getItem("nokt_related_rotation");
   if (!token) {
@@ -348,8 +297,6 @@ function computeRelatedScore(candidate, current) {
   return (sameCategory * 50) + (tagOverlap * 30) + computePopularScore(candidate) + recencyBonus;
 }
 
-// Weighted random tanpa pengembalian -- skor tinggi lebih besar peluangnya
-// terpilih, tapi bukan mutlak. Di sinilah "exposure" video lain terjadi.
 function weightedPickWithoutReplacement(items, count, rng) {
   const pool = items.map(v => ({ v, w: Math.max(v.__relatedScore, 0.01) }));
   const picked = [];
@@ -368,7 +315,6 @@ async function fetchRelatedCandidates() {
   const seen = new Map();
   const addAll = (arr) => arr.forEach(d => { if (d.id !== videoId && !seen.has(d.id)) seen.set(d.id, d); });
 
-  // 1) QUERY LAMA (dipertahankan apa adanya): kategori sama.
   if (videoData.category) {
     const qCategory = query(
       collection(db, "videos"),
@@ -379,10 +325,6 @@ async function fetchRelatedCandidates() {
     addAll((await getDocs(qCategory)).docs.map(d => ({ id: d.id, ...d.data() })));
   }
 
-  // 2) FALLBACK tag (dipakai hanya kalau kandidat dari kategori masih kurang)
-  // CATATAN: query ini butuh composite index baru di Firestore
-  // (status == + tags array-contains-any). Kalau muncul error index saat
-  // testing, klik link yang diberikan Firestore di console untuk membuatnya.
   if (seen.size < RELATED_CANDIDATE_POOL && (videoData.tags || []).length) {
     const qTags = query(
       collection(db, "videos"),
@@ -393,7 +335,6 @@ async function fetchRelatedCandidates() {
     addAll((await getDocs(qTags)).docs.map(d => ({ id: d.id, ...d.data() })));
   }
 
-  // 3) FALLBACK video terbaru (hanya kalau kandidat masih kurang dari jumlah tampil)
   if (seen.size < RELATED_SHOW_COUNT) {
     const qFallback = query(
       collection(db, "videos"),
@@ -421,9 +362,7 @@ async function loadRelated() {
   candidates.forEach(v => { v.__relatedScore = computeRelatedScore(v, videoData); });
   candidates.sort((a, b) => b.__relatedScore - a.__relatedScore);
 
-  // Slot 1-2: hasil algoritma relevansi existing, dipertahankan apa adanya.
   const fixedTop = candidates.slice(0, RELATED_FIXED_TOP);
-  // Slot 3 dst: rotation/exposure bergilir dari sisa kandidat.
   const rotationPool = candidates.slice(RELATED_FIXED_TOP);
   const rng = seededRandom(getRotationSeed() + "_" + videoId);
   const rotationPicks = weightedPickWithoutReplacement(
@@ -444,23 +383,16 @@ async function loadRelated() {
     </a>`).join("") || `<p style="color:var(--text-muted)">Belum ada video terkait</p>`;
 }
 
-// ---------- Comments ----------
 let allComments = [];
-let userReactions = {};        // { [commentOrReplyId]: "like" | "dislike" }
+let userReactions = {};
 let commentSortOrder = "desc";
-// PENYEMPURNAAN: default tampilan komentar dipersingkat jadi 2 komentar
-// teratas saja (bukan langsung 8) supaya "Video Terkait" tidak ketarik
-// jauh ke bawah saat komentar banyak. Tombol "Lihat komentar lainnya"
-// menambah 8 komentar per klik (COMMENT_BATCH_SIZE) -- bukan langsung
-// menampilkan semua sekaligus -- biar tetap ringan kalau komentarnya
-// sampai puluhan/ratusan.
 let commentDisplayLimit = 1;
 const COMMENT_BATCH_SIZE = 8;
 let unsubscribeComments = null;
 const pendingReactions = new Set();
-let activeReplyBox = null;         // id komentar/reply yang lagi dibalas (kotak reply terbuka)
-const expandedReplies = new Set(); // id komentar top-level yang balasannya lagi ditampilkan
-const replyDisplayLimits = {};     // { [commentId]: berapa reply yang ditampilkan } -- biar reply banyak gak sekaligus dirender semua
+let activeReplyBox = null;
+const expandedReplies = new Set();
+const replyDisplayLimits = {};
 const REPLY_BATCH_SIZE = 5;
 
 function listenComments() {
@@ -481,29 +413,18 @@ function listenComments() {
   });
 }
 window.addEventListener("beforeunload", () => { if (unsubscribeComments) unsubscribeComments(); });
-window.addEventListener("beforeunload", () => { stopPreviewRotation(); }); // pastikan timer rotation ikut dibersihkan
+window.addEventListener("beforeunload", () => { stopPreviewRotation(); });
 
 function renderCommentsList() {
   const list = document.getElementById("comment-list");
   const topLevel = allComments.filter(c => !c.parentId);
   const visible = topLevel.slice(0, commentDisplayLimit);
 
-  // FIX: list.innerHTML diganti TOTAL tiap kali ada snapshot Firestore baru
-  // (komentar baru, like/dislike, dari diri sendiri maupun user lain). Kalau
-  // ini kejadian PAS jari user lagi nge-scroll list ini di HP, browser
-  // langsung memutus momentum scroll-nya (DOM-nya diganti di bawah jari) --
-  // user harus gesek ulang beberapa kali sampai "kepegang" lagi, kelihatan
-  // seperti macet/diem dulu baru gerak. Fix: simpan posisi scroll SEBELUM
-  // innerHTML diganti, lalu kembalikan PERSIS setelahnya -- render tetap
-  // sama seperti biasa, cuma posisi baca user tidak ikut ke-reset/terganggu.
   const prevScrollTop = list.scrollTop;
 
   list.innerHTML = visible.map(c => renderComment(c, allComments)).join("")
     || `<p style="color:var(--text-muted)">Belum ada komentar.<br>Tulis komentar pertama...</p>`;
 
-  // PENYEMPURNAAN: teks tombol diubah jadi "Lihat komentar lainnya (N)"
-  // -- klik menambah COMMENT_BATCH_SIZE (8) komentar berikutnya, bukan
-  // menampilkan semua sekaligus (lihat listener klik di bawah).
   if (topLevel.length > commentDisplayLimit) {
     const sisa = topLevel.length - commentDisplayLimit;
     list.innerHTML += `
@@ -514,27 +435,15 @@ function renderCommentsList() {
 
   list.scrollTop = prevScrollTop;
 
-  // Comment count & preview: reuse topLevel yang sudah dihitung di atas,
-  // TIDAK ada query tambahan ke Firestore.
   updateCommentToggleHeader(topLevel);
 
-  // Reposisi ulang kolom komentar kalau lagi zoom aktif dan daftar komentar
-  // baru saja berubah tinggi (misal abis kirim komentar baru).
   if (commentZoomController && commentZoomController.isActive()) {
     commentZoomController.reposition();
   }
 
-  // Kalau sedang expanded, konten tingginya mungkin berubah (komentar baru,
-  // reply baru dibuka, dst) -- sinkronkan ulang max-height wrapper supaya
-  // tidak ada bagian yang terpotong. Aman dipanggil walau belum expanded
-  // karena fungsi ini no-op saat collapsed.
   if (typeof syncCommentExpandHeight === "function") syncCommentExpandHeight();
 }
 
-// PENYEMPURNAAN: klik "Lihat komentar lainnya" menambah COMMENT_BATCH_SIZE
-// (8) komentar berikutnya per klik -- bukan langsung menampilkan semua
-// sekaligus -- supaya tetap ringan/tidak berat kalau komentar sampai
-// puluhan/ratusan.
 document.getElementById("comment-list").addEventListener("click", (e) => {
   if (e.target.id === "btn-load-more-comments") {
     commentDisplayLimit += COMMENT_BATCH_SIZE;
@@ -553,10 +462,6 @@ document.querySelectorAll("#sort-newest, #sort-oldest").forEach(btn => {
 });
 document.getElementById("sort-newest").classList.add("active");
 
-// Diefisienkan: sebelumnya 1 getDoc per komentar (bisa puluhan read tiap buka
-// halaman). Sekarang cukup SATU query terhadap comment_reactions milik user
-// ini untuk video ini (reaction doc kini menyimpan field videoId supaya bisa
-// difilter langsung tanpa perlu tahu daftar commentId dulu).
 async function loadUserReactions() {
   userReactions = {};
   if (!currentUser) { renderCommentsList(); return; }
@@ -586,9 +491,6 @@ function renderReactionRow(item, myReaction) {
     <span class="comment-react ${dislikeActive}" data-react="dislike" data-cid="${item.id}">${ICON_THUMB_DOWN} ${item.dislikeCount||0}</span>`;
 }
 
-// Kotak balas ini SELALU nempel di parent komentar top-level (parentId),
-// walau yang dibalas adalah sebuah reply -- sesuai aturan "reply cuma 1
-// tingkat". mentionName cuma dipakai buat isi awal teks "@Nama ".
 function renderReplyBox(parentId, mentionName) {
   if (activeReplyBox !== parentId) return "";
   const mention = mentionName ? `@${escapeHtml(mentionName)} ` : "";
@@ -613,9 +515,6 @@ function renderComment(c, all) {
   const visibleReplies = replies.slice(0, replyLimit);
   const sisaReplies = replies.length - visibleReplies.length;
 
-  // word-break/overflow-wrap: jaga nama/isi komentar yang panjang (link
-  // tanpa spasi, username panjang, dll) supaya tetap membungkus ke baris
-  // berikutnya, gak bikin halaman scroll ke samping di HP.
   const wrapStyle = "overflow-wrap:anywhere;word-break:break-word";
 
   return `
@@ -663,18 +562,6 @@ function renderComment(c, all) {
     </div>`;
 }
 
-// ---------- Kirim komentar ----------
-// PENTING: tombol Kirim dipasangi "mousedown preventDefault" (lihat di bawah,
-// di dalam setupCommentFocusZoom) supaya textarea TIDAK blur duluan saat
-// tombol ini ditekan. Sebelumnya urutan kejadian saat user tap "Kirim" itu:
-//   1. mousedown di tombol -> browser pindahkan fokus -> textarea blur
-//   2. blur listener jalan -> deactivate() -> layout balik ke posisi awal
-//      (tombol Kirim ikut pindah posisi)
-//   3. click event baru mau nembak ke koordinat lama -> tombol udah gak
-//      ada di situ lagi -> klik "meleset", komentar gak terkirim
-//   4. user harus tap sekali lagi baru kekirim
-// Dengan preventDefault di mousedown, fokus TETAP di textarea selama proses
-// kirim, tombol gak ikut pindah, klik langsung kena -> sekali tap langsung kirim.
 document.getElementById("btn-comment").addEventListener("click", async () => {
   if (!currentUser) { window.location.href = "login.html"; return; }
   const input = document.getElementById("comment-input");
@@ -682,12 +569,6 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
   const text = input.value.trim();
   if (!text) return;
 
-  // PENYEMPURNAAN: dulu feedback "lagi ngirim" ditulis lewat
-  // btn.textContent = "Mengirim..." lalu balik ke "Kirim". Sekarang tombol
-  // adalah ikon SVG (pesawat kertas) yang isinya tidak diganti-ganti --
-  // feedback "lagi ngirim" & "sukses kirim" dipindah ke class CSS
-  // (is-sending / sent / glow-sent) yang meredupkan / memberi micro-pulse
-  // + glow tipis ke ikonnya.
   btn.disabled = true;
   btn.classList.add("is-sending");
   try {
@@ -699,16 +580,8 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
       createdAt: serverTimestamp()
     });
     input.value = "";
-    resetTextareaHeight(input); // balik ke tinggi ringkas, gak nyisa tinggi lama
-    // Baru sekarang tutup mode zoom & keyboard, SETELAH komentar sukses
-    // terkirim -> textarea di-blur manual, blur listener yang menutup
-    // overlay jalan seperti biasa, dan user langsung lihat komentar
-    // barunya di daftar (posisi udah balik normal).
+    resetTextareaHeight(input);
     input.blur();
-    // Micro-interaction sukses kirim: pulse singkat (scale) pada ikon SVG,
-    // DITAMBAH efek glow tipis yang menyala ±2 detik (class terpisah,
-    // durasi berbeda, supaya "pulse" cepat tapi "glow" terasa lebih lama
-    // dan lembut -- sesuai permintaan "nyala, efek glow, 2 detik, tipis").
     btn.classList.remove("is-sending");
     btn.classList.add("sent");
     btn.classList.add("glow-sent");
@@ -717,29 +590,19 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
   } catch (err) {
     console.error("Gagal mengirim komentar:", err.message);
     alert("Komentar gagal terkirim. Coba lagi sebentar lagi.\n(" + err.message + ")");
-    // Gagal kirim -> jangan ditutup, biarkan user coba lagi tanpa harus fokus ulang.
     btn.classList.remove("is-sending");
   } finally {
-    // Teks sudah dikosongkan (sukses) atau masih ada (gagal) -- baik pun,
-    // refreshSendButtonState() yang menentukan aktif/tidaknya tombol
-    // berikutnya berdasarkan status login + isi textarea saat ini.
     refreshSendButtonState();
   }
 });
 
-// Satu listener untuk: hapus komentar/reply, buka/tutup kotak balas, kirim
-// balasan, expand/collapse daftar balasan, dan reaksi like/dislike
-// (komentar maupun reply -- keduanya sama-sama dokumen di koleksi
-// "comments" jadi dipakaikan logika yang sama persis).
 document.getElementById("comment-list").addEventListener("click", async (e) => {
-  // --- Hapus komentar / reply ---
   const delId = e.target.dataset.del;
   if (delId) {
     await deleteDoc(doc(db, "comments", delId));
     return;
   }
 
-  // --- Buka/tutup kotak balas ---
   const replyId = e.target.dataset.reply;
   if (replyId) {
     if (!currentUser) { window.location.href = "login.html"; return; }
@@ -748,19 +611,17 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
     return;
   }
 
-  // --- Batal balas ---
   if (e.target.classList.contains("btn-cancel-reply")) {
     activeReplyBox = null;
     renderCommentsList();
     return;
   }
 
-  // --- Tampilkan / sembunyikan daftar balasan ---
   const toggleId = e.target.dataset.toggleReplies;
   if (toggleId) {
     if (expandedReplies.has(toggleId)) {
       expandedReplies.delete(toggleId);
-      delete replyDisplayLimits[toggleId]; // balik ke batas awal kalau ditutup lagi
+      delete replyDisplayLimits[toggleId];
     } else {
       expandedReplies.add(toggleId);
     }
@@ -768,7 +629,6 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
     return;
   }
 
-  // --- Muat balasan lainnya (pagination reply) ---
   const moreRepliesId = e.target.dataset.moreReplies;
   if (moreRepliesId) {
     replyDisplayLimits[moreRepliesId] = (replyDisplayLimits[moreRepliesId] || REPLY_BATCH_SIZE) + REPLY_BATCH_SIZE;
@@ -776,7 +636,6 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
     return;
   }
 
-  // --- Kirim balasan ---
   if (e.target.classList.contains("btn-send-reply")) {
     if (!currentUser) { window.location.href = "login.html"; return; }
     const parentId = e.target.dataset.parent;
@@ -793,7 +652,7 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
         createdAt: serverTimestamp()
       });
       activeReplyBox = null;
-      expandedReplies.add(parentId); // biar balasan baru langsung kelihatan
+      expandedReplies.add(parentId);
     } catch (err) {
       console.error("Gagal mengirim balasan:", err.message);
       alert("Balasan gagal terkirim. Coba lagi.");
@@ -803,7 +662,6 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
     return;
   }
 
-  // --- Reaksi like/dislike (komentar maupun reply) ---
   const reactEl = e.target.closest("[data-react]");
   if (reactEl) {
     if (!currentUser) { window.location.href = "login.html"; return; }
@@ -819,16 +677,7 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
     const prevType = userReactions[cid];
 
     try {
-      // Catatan: idealnya dua penulisan di bawah (dokumen reaksi + counter
-      // like/dislike komentar) digabung jadi satu writeBatch supaya atomik.
-      // Untuk sekarang dibuat sekuensial biasa (setDoc/deleteDoc lalu
-      // updateDoc) supaya TIDAK butuh import "writeBatch" tambahan dari
-      // firebase-config.js. increment() tetap dipakai jadi counter tetap
-      // aman dari race condition banyak user bereaksi bersamaan; yang
-      // belum sepenuhnya atomik cuma kombinasi "reaction doc + counter"
-      // itu sendiri kalau salah satu request gagal di tengah jalan.
       if (prevType === type) {
-        // klik ulang tombol yang sama -> batalkan reaksi
         const field = type === "like" ? "likeCount" : "dislikeCount";
         if (target) target[field] = Math.max((target[field] || 1) - 1, 0);
         delete userReactions[cid];
@@ -837,7 +686,6 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
         await updateDoc(commentRef, { [field]: increment(-1) });
 
       } else if (prevType) {
-        // pindah dari like ke dislike (atau sebaliknya)
         const oldField = prevType === "like" ? "likeCount" : "dislikeCount";
         const newField = type === "like" ? "likeCount" : "dislikeCount";
         if (target) {
@@ -850,7 +698,6 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
         await updateDoc(commentRef, { [oldField]: increment(-1), [newField]: increment(1) });
 
       } else {
-        // belum pernah bereaksi -> reaksi baru
         const field = type === "like" ? "likeCount" : "dislikeCount";
         if (target) target[field] = (target[field] || 0) + 1;
         userReactions[cid] = type;
@@ -870,55 +717,6 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
 });
 
 // ---------- Kolom komentar: bottom-bar mengambang saat fokus ----------
-// Didesain ulang total dari versi "pin video ke atas + hitung top manual"
-// (versi itu gampang meleset -> muncul jarak kosong aneh di atas video,
-// keliatan maksa & gak konsisten di semua HP/browser).
-//
-// Sekarang ngikutin pola app populer (IG/YouTube/TikTok): video DIBIARKAN
-// di tempatnya, gak dipindah-pindah sama sekali. Yang jadi overlay cuma
-// kolom komentar -> nempel sebagai bar full-width di BAWAH layar, pas di
-// atas keyboard.
-//
-// FIX (posisi vs keyboard): sebelumnya posisi bar dihitung dari
-// `window.innerHeight - visualViewport.height`. Masalahnya begitu input
-// difokus, sebagian browser mobile (mis. Brave/Chrome Android) JUGA ikut
-// menyembunyikan address bar bersamaan dengan keyboard muncul -- itu bikin
-// window.innerHeight ikut membesar di saat yang sama, sehingga selisih yang
-// dihitung jadi "tinggi keyboard + tinggi address bar yang baru hilang",
-// bukan cuma tinggi keyboard murni. Hasilnya jarak kosong lebar di atas
-// keyboard, dan besarnya beda-beda tiap device/browser (Android vs iPhone).
-//
-// Fix: posisikan bar pakai `top: visualViewport.offsetTop + visualViewport.height
-// - tinggiBar`, BUKAN `bottom` berbasis window.innerHeight. visualViewport
-// murni merepresentasikan area yang benar-benar terlihat (sudah dikurangi
-// keyboard), jadi tidak ikut kebawa oleh perubahan address bar -- hasilnya
-// konsisten nempel pas di atas keyboard baik di Android maupun iPhone.
-//
-// FIX (halaman "geser sendiri" setelah kirim komentar): sebelumnya tinggi
-// #video-meta + #comments-heading diukur ULANG di dalam deactivate(), pas
-// video-meta/comments-heading itu sendiri sedang di tengah-tengah transisi
-// CSS (height:0 -> tinggi asli). Kalau addDoc() (submit komentar) kebetulan
-// selesai & memicu blur hampir bersamaan, pengukuran itu bisa kena nilai
-// tengah-transisi yang belum stabil -- kompensasi scroll jadi salah besar
-// dan halaman kelihatan "dilempar" jauh ke bawah/atas.
-// Fix: tinggi ASLI (sebelum dikecilkan) disimpan sekali di activate(),
-// dipakai lagi persis di deactivate() -- tidak perlu ukur ulang di tengah
-// animasi sama sekali.
-//
-// FIX TAMBAHAN (halaman masih "geser sendiri" walau sudah pakai
-// cachedRevealHeight): window.scrollTo() di deactivate() sebelumnya
-// dieksekusi SINKRON, tepat saat input.blur() dipanggil. Tapi penutupan
-// keyboard oleh OS/browser sendiri BUKAN proses instan -- ada animasi
-// (~100-300ms) yang juga memicu perubahan visualViewport dan browser
-// SENDIRI ikut mengoreksi posisi scroll di tengah proses itu. Kompensasi
-// manual kita yang jalan lebih dulu jadi "rebutan" dengan koreksi native
-// browser -- hasil akhirnya scroll meleset jauh (halaman kelihatan
-// "dilempar" ke atas/bawah setelah kirim komentar).
-// Fix: tunda window.scrollTo() sampai visualViewport benar-benar selesai
-// berubah (resize event, menandakan keyboard sudah tertutup penuh), baru
-// kompensasi dijalankan -- jadi tidak lagi beradu dengan proses native
-// browser. Ada fallback timer 350ms untuk kondisi visualViewport tidak
-// berubah sama sekali (mis. desktop / keyboard tidak muncul).
 let commentZoomController = null;
 
 function setupCommentFocusZoom() {
@@ -928,9 +726,9 @@ function setupCommentFocusZoom() {
   if (!box || !input || !btnSend) return null;
 
   let isActive = false;
-  let placeholder = null; // jaga tinggi ruang aslinya biar konten di bawah gak "loncat"
-  let rafId = null; // buat nunda perhitungan posisi sampai browser selesai 1 frame animasi
-  let cachedRevealHeight = 0; // tinggi #video-meta + #comments-heading, diukur SEBELUM dikecilkan (dipakai lagi di deactivate)
+  let placeholder = null;
+  let rafId = null;
+  let cachedRevealHeight = 0;
 
   function outerHeight(el) {
     if (!el) return 0;
@@ -947,16 +745,10 @@ function setupCommentFocusZoom() {
       if (!isActive) return;
       const vv = window.visualViewport;
       if (!vv) {
-        // Fallback kalau visualViewport tidak didukung: tetap nempel di
-        // bawah layar seperti perilaku semula.
         box.style.setProperty("top", "auto", "important");
         box.style.setProperty("bottom", "0px", "important");
         return;
       }
-      // Posisi dihitung dari tepi BAWAH area yang benar-benar terlihat
-      // (offsetTop + height visualViewport) -- murni mengikuti tinggi
-      // keyboard, tidak ikut kebawa saat address bar browser ikut
-      // hilang/muncul bersamaan dengan keyboard.
       const boxHeight = box.getBoundingClientRect().height;
       const top = vv.offsetTop + vv.height - boxHeight;
       box.style.setProperty("bottom", "auto", "important");
@@ -967,10 +759,6 @@ function setupCommentFocusZoom() {
   function activate() {
     if (input.disabled || isActive) return;
 
-    // Simpan tinggi ASLI video-meta + comments-heading di sini, SEBELUM
-    // class "comment-focus-active" mengecilkannya ke height:0 -- supaya
-    // deactivate() nanti tidak perlu (dan tidak boleh) mengukur ulang di
-    // tengah transisi CSS.
     const meta = document.getElementById("video-meta");
     const heading = document.getElementById("comments-heading");
     cachedRevealHeight = outerHeight(meta) + outerHeight(heading);
@@ -1003,10 +791,6 @@ function setupCommentFocusZoom() {
     const meta = document.getElementById("video-meta");
     const heading = document.getElementById("comments-heading");
 
-    // Matikan transisi height SEMENTARA supaya meta/heading langsung balik
-    // ke tinggi aslinya seketika (bukan animasi ~beberapa ratus ms) --
-    // memastikan tidak ada nilai tengah-transisi yang ikut terbaca kalau
-    // ada kode lain yang kebetulan mengukur elemen ini di frame yang sama.
     [meta, heading].forEach(el => { if (el) el.style.setProperty("transition", "none", "important"); });
 
     box.classList.remove("is-focused");
@@ -1021,49 +805,56 @@ function setupCommentFocusZoom() {
     }
     isActive = false;
 
-    // Paksa reflow supaya tinggi video-meta/heading yang baru saja
-    // dikembalikan (dari height:0 ke tinggi aslinya) sudah pasti
-    // ter-update sebelum dipakai di bawah.
     void document.documentElement.offsetHeight;
 
-    // FIX: tunda kompensasi scroll manual sampai keyboard BENAR-BENAR
-    // selesai menutup (ditandai event "resize" pada visualViewport),
-    // supaya tidak beradu dengan koreksi posisi native yang dilakukan
-    // browser sendiri selama animasi penutupan keyboard. Fallback timer
-    // 350ms menjaga kalau visualViewport ternyata tidak berubah sama
-    // sekali (mis. di desktop, atau keyboard memang tidak sempat muncul).
     const applyCompensation = () => {
-      // Pakai tinggi yang sudah disimpan di activate() (sebelum
-      // dikecilkan), BUKAN mengukur ulang sekarang -- ini yang
-      // menghindari "loncat" scroll akibat pengukuran kena nilai
-      // tengah-transisi.
       if (cachedRevealHeight > 0) {
         window.scrollTo(0, scrollYBefore + cachedRevealHeight);
       }
     };
 
+    // FIX (debounce): sebelumnya kompensasi scroll langsung dijalankan di
+    // event "resize" visualViewport yang PERTAMA muncul. Masalahnya,
+    // penutupan keyboard sering memicu beberapa kali resize berturut-turut
+    // (animasinya bertahap) -- kalau kompensasi dijalankan di resize
+    // pertama (yang masih di tengah animasi/belum stabil), browser masih
+    // lanjut menggeser sendiri sesudahnya -> halaman kelihatan "geser
+    // berkali-kali" tiap kirim komentar.
+    //
+    // Sekarang pakai pola debounce: setiap ada resize baru, timer direset.
+    // Kompensasi baru dijalankan setelah TIDAK ada resize baru selama
+    // 120ms berturut-turut -- menandakan visualViewport benar-benar sudah
+    // diam/stabil. Fallback 450ms tetap dijaga untuk kondisi
+    // visualViewport tidak pernah resize sama sekali (desktop / keyboard
+    // tidak muncul).
     if (window.visualViewport) {
+      let settleTimer = null;
       let applied = false;
-      const onVVResize = () => {
+
+      const scheduleSettle = () => {
         if (applied) return;
-        applied = true;
-        window.visualViewport.removeEventListener("resize", onVVResize);
-        requestAnimationFrame(applyCompensation);
+        if (settleTimer) clearTimeout(settleTimer);
+        settleTimer = setTimeout(() => {
+          if (applied) return;
+          applied = true;
+          window.visualViewport.removeEventListener("resize", scheduleSettle);
+          requestAnimationFrame(applyCompensation);
+        }, 120);
       };
-      window.visualViewport.addEventListener("resize", onVVResize);
+
+      window.visualViewport.addEventListener("resize", scheduleSettle);
+
       setTimeout(() => {
         if (!applied) {
           applied = true;
-          window.visualViewport.removeEventListener("resize", onVVResize);
+          window.visualViewport.removeEventListener("resize", scheduleSettle);
           applyCompensation();
         }
-      }, 350);
+      }, 450);
     } else {
       applyCompensation();
     }
 
-    // Kembalikan transition normal di frame berikutnya, supaya toggle
-    // fokus/blur selanjutnya tetap animasinya halus seperti semula.
     requestAnimationFrame(() => {
       [meta, heading].forEach(el => { if (el) el.style.removeProperty("transition"); });
     });
@@ -1089,11 +880,8 @@ function setupCommentFocusZoom() {
 
 commentZoomController = setupCommentFocusZoom();
 
-// ---------- Layout ringkas: textarea auto-resize + daftar komentar dibatasi tinggi ----------
-// PENYEMPURNAAN: dipersempit sedikit (44->38, 120->100) supaya kolom
-// input terasa lebih compact, sesuai pola aplikasi video modern.
-const COMMENT_TEXTAREA_MIN_H = 38;   // ~1.5 baris
-const COMMENT_TEXTAREA_MAX_H = 100;  // ~4 baris sebelum scroll sendiri
+const COMMENT_TEXTAREA_MIN_H = 38;
+const COMMENT_TEXTAREA_MAX_H = 100;
 const COMMENT_LIST_MAX_H = "min(50vh, 420px)";
 
 function resetTextareaHeight(el) {
@@ -1118,31 +906,19 @@ function autoGrowTextarea(el) {
     resetTextareaHeight(input);
     input.addEventListener("input", () => {
       autoGrowTextarea(input);
-      // PENYEMPURNAAN: sinkronkan disabled/enabled tombol kirim SVG tiap
-      // user mengetik (empty = disabled, ada isi = enabled) -- tidak
-      // menyentuh logic auto-grow yang sudah ada di atasnya.
       refreshSendButtonState();
     });
-    refreshSendButtonState(); // state awal saat halaman baru dibuka
+    refreshSendButtonState();
   }
 
   if (list) {
     list.style.setProperty("max-height", COMMENT_LIST_MAX_H, "important");
     list.style.setProperty("overflow-y", "auto", "important");
-    // PENYEMPURNAAN: containment scroll -- scroll di dalam daftar komentar
-    // TIDAK "bocor" ke scroll halaman utama saat sudah mentok atas/bawah
-    // (mencegah scroll chaining yang mengganggu). -webkit-overflow-scrolling
-    // bikin momentum scroll di iOS terasa natural.
     list.style.setProperty("overscroll-behavior", "contain", "important");
     list.style.setProperty("-webkit-overflow-scrolling", "touch", "important");
   }
 })();
 
-// ---------- Tombol kirim: ikon SVG pesawat kertas (bulat) ----------
-// Menggantikan TAMPILAN tombol teks "Kirim" jadi tombol bulat berisi SVG
-// inline -- id, event listener "click", dan seluruh logic kirim komentar
-// TIDAK berubah sama sekali (listener tetap terpasang ke elemen
-// #btn-comment yang sama persis).
 (function setupSendButtonIcon() {
   const btn = document.getElementById("btn-comment");
   if (!btn) return;
@@ -1156,15 +932,6 @@ function autoGrowTextarea(el) {
     </svg>`;
 })();
 
-// ---------- Layout satu baris: textarea + tombol kirim di sampingnya ----------
-// Sebelumnya tombol kirim ada di baris TERPISAH di bawah textarea (di dalam
-// div pembungkus yang sama dengan hint login). Sekarang tombol dipindah
-// jadi sibling LANGSUNG setelah textarea di dalam .comment-box, lalu
-// .comment-box dibuat flex-row supaya keduanya sejajar satu baris (textarea
-// melebar mengisi ruang, tombol bulat nempel di kanan). Hint login (yang
-// tadinya satu baris dengan tombol) tetap ada, cuma sekarang jadi baris
-// sendiri paling bawah (flex-basis:100%) kalau user belum login -- tidak
-// ada elemen yang dihapus, cuma posisinya yang diatur ulang.
 (function setupInlineSendLayout() {
   const box = document.querySelector(".comment-box");
   const textarea = document.getElementById("comment-input");
@@ -1172,7 +939,7 @@ function autoGrowTextarea(el) {
   const hint = document.getElementById("comment-login-hint");
   if (!box || !textarea || !btn) return;
 
-  const hintRow = hint ? hint.parentElement : null; // div pembungkus asli (skrg cuma isi hint, tombol sudah dipindah keluar)
+  const hintRow = hint ? hint.parentElement : null;
 
   box.insertBefore(btn, textarea.nextSibling);
 
@@ -1184,21 +951,16 @@ function autoGrowTextarea(el) {
   textarea.style.setProperty("flex", "1 1 auto", "important");
   textarea.style.setProperty("width", "auto", "important");
   textarea.style.setProperty("min-width", "0", "important");
-  // Border tipis eksplisit, mengikuti gaya tombol Terbaru/Terlama/Share
-  // (border 1px warna --border, radius 8px) supaya konsisten satu tema.
   textarea.style.setProperty("border", "1px solid var(--border, #232326)", "important");
   textarea.style.setProperty("border-radius", "8px", "important");
 
   if (hintRow) {
-    // Hint login didorong ke baris baru paling bawah (bukan sejajar
-    // dengan textarea+tombol) supaya tidak bikin baris utama sempit.
     hintRow.style.setProperty("flex-basis", "100%", "important");
     hintRow.style.setProperty("margin-top", "6px", "important");
     hintRow.style.setProperty("order", "3", "important");
   }
 })();
 
-// ---------- Deskripsi ringkas dengan toggle "Selengkapnya" ----------
 function setupCollapsibleDescription(descEl, fullText) {
   descEl.textContent = fullText;
   descEl.style.setProperty("display", "-webkit-box", "important");
@@ -1233,21 +995,6 @@ function setupCollapsibleDescription(descEl, fullText) {
   });
 }
 
-// ============================================================
-// Section Komentar — collapsed default, full-area toggle, preview,
-// micro-interaction, animasi halus, accessibility.
-// ============================================================
-// PENYEMPURNAAN atas sistem existing, BUKAN sistem baru:
-//  - comment count & preview: reuse `topLevel` yang sudah dihitung di
-//    renderCommentsList() -- tidak ada query Firestore tambahan.
-//  - realtime: tetap pakai listenComments() / onSnapshot yang sudah ada,
-//    tidak ada listener kedua; fungsi di sini hanya dipanggil dari
-//    renderCommentsList() yang sudah jadi satu-satunya "sumber render".
-//  - Like/Dislike/Reply/sorting/pagination: TIDAK disentuh sama sekali.
-//  - Video Terkait: berada di container terpisah (#related-list) di luar
-//    wrapper toggle ini, tidak ikut dianimasikan/collapse.
-// ============================================================
-
 function findCommentHeading() {
   const headingTags = document.querySelectorAll("h1,h2,h3,h4,h5,h6");
   for (const el of headingTags) {
@@ -1260,21 +1007,6 @@ function findCommentHeading() {
   return null;
 }
 
-// ---------- FIX: sticky header komentar dihapus total ----------
-// Sebelumnya #comment-subheader (baris "Komentar N" + tombol
-// Terbaru/Terlama) dipasang position:sticky supaya tetap kelihatan saat
-// daftar komentar di-scroll. Efeknya: baris itu nempel TEPAT DI BELAKANG
-// navbar (site-header, yang juga sticky & z-index lebih tinggi) begitu
-// halaman di-scroll -- komentar paling atas jadi kelihatan "macet"/kepotong
-// dan seperti tidak bisa discroll lagi, padahal scroll-nya jalan normal,
-// cuma kontennya ketutup navbar.
-//
-// Sesuai permintaan, sticky-nya dihapus BERSIH -- hanya properti yang
-// membuatnya "nempel" (position/top/z-index) dan dua properti yang cuma
-// relevan SELAMA sticky (background & border-bottom, dulu dipakai supaya
-// baris ini menutupi konten yang lewat di baliknya) yang dibuang. Padding
-// & transition dipertahankan apa adanya supaya spacing baris ini terhadap
-// kolom input & daftar komentar tidak berubah sama sekali.
 function injectCommentToggleStyles() {
   if (document.getElementById("nokt-comment-toggle-style")) return;
   const style = document.createElement("style");
@@ -1295,21 +1027,9 @@ function injectCommentToggleStyles() {
     .comment-toggle-header.pulse #comment-count-header,
     .comment-toggle-header.pulse .comment-preview{animation: nokt-comment-pulse 1.3s ease 1}
 
-    /* ---- Comment Preview Rotation (mini hero slider) ----
-       Transisi ringan (fade + slide 4px), TIDAK mengubah tinggi container
-       -- .comment-preview sudah dibatasi -webkit-line-clamp:2 di atas,
-       jadi tinggi tetap stabil walau isi teks beda panjang. */
     .comment-preview{transition:opacity .2s ease, transform .2s ease}
     .comment-preview.preview-rotating{opacity:0;transform:translateY(-4px)}
 
-    /* ---- Sub-header (jumlah komentar + sort) di dalam area komentar
-       yang terbuka ----
-       FIX: sticky (position/top/z-index) DIHAPUS TOTAL, begitu juga
-       background & border-bottom yang tadinya hanya dipakai untuk
-       menutupi konten yang lewat di belakangnya saat sticky. Baris ini
-       sekarang ikut scroll normal bersama daftar komentar, seperti
-       elemen biasa lainnya. Padding & transition dipertahankan supaya
-       spacing tidak berubah. */
     #comment-subheader{
       padding-top:8px;
       padding-bottom:8px;
@@ -1318,10 +1038,6 @@ function injectCommentToggleStyles() {
       transition:padding .25s ease;
     }
 
-    /* ---- Compact mode saat daftar komentar di-scroll ----
-       Dipicu class "comments-scrolled" pada wrapper #comment-expand-content
-       (lihat listener "scroll" di setupCollapsibleCommentsSection). Cuma
-       padding/spacing yang dikurangi, info & ukuran font tidak disentuh. */
     #comment-expand-content.comments-scrolled #comment-subheader{
       padding-top:4px;
       padding-bottom:4px;
@@ -1333,8 +1049,6 @@ function injectCommentToggleStyles() {
       padding:7px 0;
     }
 
-    /* ---- Tombol kirim: ikon SVG pesawat kertas, bulat ----
-       Menggantikan tampilan tombol teks lama TANPA mengubah id/listener. */
     #btn-comment.btn-send{
       width:38px;height:38px;min-width:38px;padding:0;
       border-radius:50%;
@@ -1354,11 +1068,6 @@ function injectCommentToggleStyles() {
     }
     #btn-comment.btn-send.sent{ animation: nokt-send-pulse .4s ease; }
 
-    /* ---- Efek "nyala" / glow tipis setelah kirim sukses ----
-       Berbeda dari .sent (pulse scale cepat, 0.4s): glow ini bertahan
-       ±2 detik dan sengaja dibuat TIPIS (blur & opacity kecil) supaya
-       terasa halus, bukan norak. Class ditambah & dilepas otomatis via
-       JS (lihat listener klik #btn-comment di bagian atas file). */
     @keyframes nokt-send-glow{
       0%{ box-shadow:0 0 0 0 rgba(255,122,26,0); }
       20%{ box-shadow:0 0 9px 2px rgba(255,122,26,.32); }
@@ -1368,10 +1077,6 @@ function injectCommentToggleStyles() {
       animation: nokt-send-glow 2s ease-out;
     }
 
-    /* ---- Tombol sort (Terbaru/Terlama) diperkecil ----
-       Menyesuaikan proporsi sekarang tombol kirim sudah jadi ikon bulat
-       kecil di samping textarea -- padding & ukuran font dikecilkan
-       sedikit supaya seimbang, tidak mengubah fungsinya sama sekali. */
     #sort-newest, #sort-oldest{
       padding:5px 10px !important;
       font-size:.72rem !important;
@@ -1380,9 +1085,6 @@ function injectCommentToggleStyles() {
   document.head.appendChild(style);
 }
 
-// Komentar top-level TERBARU untuk preview -- selalu berdasarkan createdAt
-// asli, terlepas dari sorting Terbaru/Terlama yang sedang dipilih user
-// untuk daftar komentar (preview harus tetap konsisten, sesuai spesifikasi).
 function getNewestTopLevelComment(topLevel) {
   if (!topLevel.length) return null;
   return topLevel.reduce((newest, c) => {
@@ -1394,33 +1096,17 @@ function getNewestTopLevelComment(topLevel) {
 
 let commentSectionExpanded = false;
 let lastKnownCommentCount = null;
-let syncCommentExpandHeight = null; // di-assign di dalam IIFE setup, dipanggil dari renderCommentsList()
+let syncCommentExpandHeight = null;
 
-// ============================================================
-// Comment Preview Rotation -- "mini hero slider" untuk preview saat
-// collapsed. PENYEMPURNAAN UI murni: tidak ada query/listener Firestore
-// baru, semua kandidat diambil dari `allComments` yang sudah tersedia
-// lewat listenComments() existing. Rotation cuma jalan saat collapsed,
-// berhenti total saat section dibuka, dan cuma ada SATU timer aktif
-// sepanjang waktu (dijaga lewat guard `if (!previewTimer)` di
-// updateCommentToggleHeader + stopPreviewRotation() sebelum start ulang).
-// ============================================================
-let previewCandidates = [];      // komentar top-level, terbaru dulu -- sumber rotasi
-let previewCommentId = null;     // id komentar yang SEDANG tampil di preview
-let previewTimer = null;         // satu-satunya timer rotation yang boleh aktif
-const PREVIEW_ROTATE_MS = 3500;  // ~3.5 detik, sesuai rentang 3-4 detik di spec
+let previewCandidates = [];
+let previewCommentId = null;
+let previewTimer = null;
+const PREVIEW_ROTATE_MS = 3500;
 
-// Urutan dasar kandidat: terbaru dulu (index 0), supaya preview PERTAMA
-// yang tampil tetap komentar terbaru -- ini cuma urutan tampilan preview,
-// TIDAK menyentuh commentSortOrder (Terbaru/Terlama) punya daftar komentar
-// utuh, yang tetap dikendalikan terpisah seperti semula.
 function buildPreviewCandidates(topLevel) {
   return [...topLevel].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 }
 
-// Render satu komentar ke kotak preview. `animate=false` dipakai untuk
-// tampilan pertama kali (langsung, tanpa fade) -- fade hanya dipakai saat
-// benar-benar berganti index lewat rotation.
 function renderCommentPreview(comment, animate) {
   const previewEl = document.getElementById("comment-preview");
   if (!previewEl || !comment) return;
@@ -1440,41 +1126,24 @@ function stopPreviewRotation() {
   if (previewTimer) { clearInterval(previewTimer); previewTimer = null; }
 }
 
-// PENCEGAHAN MULTIPLE TIMER: selalu stop dulu sebelum start, jadi tidak
-// mungkin ada 2 interval jalan bersamaan walau fungsi ini kepanggil
-// berkali-kali (misal karena listenComments() nembak beberapa kali).
 function startPreviewRotation() {
   stopPreviewRotation();
-  if (commentSectionExpanded) return;           // jangan jalan saat komentar terbuka
-  if (previewCandidates.length < 2) return;      // 0-1 komentar -> tidak perlu rotasi
+  if (commentSectionExpanded) return;
+  if (previewCandidates.length < 2) return;
 
   previewTimer = setInterval(() => {
-    // Guard tambahan di dalam timer -- kalau section sempat dibuka atau
-    // kandidat berkurang jadi <2 SETELAH timer jalan, hentikan diri sendiri.
     if (commentSectionExpanded || previewCandidates.length < 2) {
       stopPreviewRotation();
       return;
     }
     const idx = previewCandidates.findIndex(c => c.id === previewCommentId);
-    const nextIdx = (idx + 1) % previewCandidates.length; // round-robin, gak ada duplikat sampai semua kebagian giliran
+    const nextIdx = (idx + 1) % previewCandidates.length;
     const next = previewCandidates[nextIdx];
     previewCommentId = next.id;
     renderCommentPreview(next, true);
   }, PREVIEW_ROTATE_MS);
 }
 
-// Update jumlah komentar (akurat, dari data asli) + preview komentar
-// (dengan rotation kalau 2+) saat collapsed + micro-interaction singkat
-// (±1.3 detik, bukan animasi terus-menerus) saat jumlah bertambah
-// dibanding sebelumnya.
-//
-// FIX (sebelumnya): fungsi ini cuma nulis ke #comment-count (elemen ASLI
-// yang sudah dipindah paksa ke header). Sekarang #comment-count TETAP di
-// tempat asalnya (baris bareng tombol sort, tidak dipindah lagi -- lihat
-// setupCollapsibleCommentsSection di bawah), dan ditambahkan
-// #comment-count-header sebagai salinan tampilan KHUSUS untuk area header
-// collapse. Dua-duanya disinkronkan angkanya di sini; header-nya saja yang
-// disembunyikan saat expanded.
 function updateCommentToggleHeader(topLevel) {
   const countEl = document.getElementById("comment-count");
   const headerCountEl = document.getElementById("comment-count-header");
@@ -1483,21 +1152,12 @@ function updateCommentToggleHeader(topLevel) {
   if (!countEl) return;
 
   const count = topLevel.length;
-  // PENYEMPURNAAN: dua format teks berbeda untuk dua tempat berbeda --
-  //  - subHeaderText ("Komentar 380") dipakai di header sticky DI DALAM
-  //    area komentar yang terbuka, menggantikan teks lama "380 komentar"
-  //    di baris yang sama dengan tombol sort.
-  //  - previewText ("380 komentar") TETAP dipakai di preview di bawah
-  //    heading "Komentar ▾" saat section masih collapsed -- supaya kata
-  //    "Komentar" tidak dobel (headingnya sendiri sudah bertuliskan itu).
   const subHeaderText = `Komentar ${count}`;
   const previewText = `${count} komentar`;
   countEl.textContent = subHeaderText;
 
   if (headerCountEl) {
     headerCountEl.textContent = previewText;
-    // Cuma tampil saat collapsed -- saat expanded, angka asli di baris
-    // sort (countEl) yang kelihatan, jadi tidak dobel.
     headerCountEl.style.display = commentSectionExpanded ? "none" : "";
   }
 
@@ -1506,18 +1166,12 @@ function updateCommentToggleHeader(topLevel) {
       previewEl.style.display = "";
       previewCandidates = buildPreviewCandidates(topLevel);
 
-      // Kalau komentar yg lagi tampil sudah gak ada di daftar kandidat
-      // (baru pertama kali render, atau komentar itu dihapus) -> tampilkan
-      // yang terbaru (index 0) langsung tanpa animasi fade.
       const stillExists = previewCandidates.some(c => c.id === previewCommentId);
       if (!stillExists) {
         previewCommentId = previewCandidates[0].id;
         renderCommentPreview(previewCandidates[0], false);
       }
 
-      // Rotation cuma di-(re)start kalau memang belum ada timer jalan --
-      // supaya listener realtime yang nembak berkali-kali (like/dislike,
-      // komentar baru dari user lain) TIDAK reset countdown tiap saat.
       if (previewCandidates.length >= 2) {
         if (!previewTimer) startPreviewRotation();
       } else {
@@ -1526,16 +1180,13 @@ function updateCommentToggleHeader(topLevel) {
     } else {
       previewEl.style.display = "none";
       previewEl.innerHTML = "";
-      stopPreviewRotation(); // HENTIKAN rotation total saat komentar 0 atau section terbuka
+      stopPreviewRotation();
     }
   }
 
-  // Hint interaktif ringan: hanya jalan kalau count NAIK dibanding nilai
-  // terakhir yang diketahui (bukan saat load pertama kali), dan berhenti
-  // sendiri setelah ±1.3 detik -- tidak pernah berulang terus-menerus.
   if (headerEl && lastKnownCommentCount !== null && count > lastKnownCommentCount) {
     headerEl.classList.remove("pulse");
-    void headerEl.offsetWidth; // paksa reflow supaya animasi bisa restart kalau beruntun
+    void headerEl.offsetWidth;
     headerEl.classList.add("pulse");
     setTimeout(() => headerEl.classList.remove("pulse"), 1400);
   }
@@ -1550,41 +1201,14 @@ function updateCommentToggleHeader(topLevel) {
   const list = document.getElementById("comment-list");
   const countEl = document.getElementById("comment-count");
 
-  // FIX UTAMA: sebelumnya sortNewest & sortOldest diambil SATU-SATU lalu
-  // masing-masing dipindah jadi children langsung contentWrap. Ini merusak
-  // baris pembungkus aslinya di HTML:
-  //   <div style="display:flex;justify-content:space-between;...">
-  //     <span id="comment-count">...</span>
-  //     <div style="display:flex;gap:6px">
-  //       <button id="sort-newest">Terbaru</button>
-  //       <button id="sort-oldest">Terlama</button>
-  //     </div>
-  //   </div>
-  // Div pembungkus itu ditinggal kosong, dan tombol Kirim (dari .comment-box,
-  // yang tetap di posisinya) jadi nempel langsung ke tombol Terbaru tanpa
-  // jarak -- itulah yang menyebabkan Kirim numpuk ke Terbaru/Terlama.
-  //
-  // Sekarang seluruh BARIS itu (sortRow = pembungkus terluar berisi
-  // comment-count + sort buttons) dipindah UTUH sebagai satu unit, jadi
-  // "justify-content:space-between" dan spacing aslinya tetap berlaku persis
-  // seperti semula -- tidak ada elemen yang dicerai-beraikan.
   const sortRow = sortNewest ? sortNewest.parentElement.parentElement : null;
 
-  // sortRow (baris "Komentar N" + tombol sort) diberi id supaya bisa
-  // ditarget CSS (#comment-subheader di injectCommentToggleStyles) tanpa
-  // mengubah konten/child elemennya sama sekali -- masih sortNewest &
-  // sortOldest yang sama, masih countEl yang sama. FIX: baris ini sekarang
-  // TIDAK lagi sticky (lihat injectCommentToggleStyles), jadi ikut scroll
-  // normal bersama daftar komentar seperti elemen lain.
   if (sortRow) sortRow.id = "comment-subheader";
 
   if (!heading || !list) return;
 
   injectCommentToggleStyles();
 
-  // ---- Header gabungan: heading + jumlah + preview, jadi SATU area yang
-  // full-nya bisa diklik/tap (bukan cuma teks "Komentar"). Elemen asli
-  // (heading) DIPINDAH ke dalam wrapper ini, tidak diganti. ----
   const headerWrap = document.createElement("div");
   headerWrap.id = "comment-toggle-header";
   headerWrap.className = "comment-toggle-header";
@@ -1600,21 +1224,10 @@ function updateCommentToggleHeader(topLevel) {
 
   const arrow = document.createElement("span");
   arrow.className = "comment-toggle-arrow";
-  // FIX: dulu diisi karakter unicode "▾" di sini. Sekarang segitiga
-  // digambar murni via CSS border (.comment-toggle-arrow di style.css)
-  // dan rotasinya mengikuti atribut aria-expanded yang di-set di
-  // applyState() di bawah -- textContent SENGAJA dikosongkan supaya
-  // tidak ada karakter unicode yang bertumpuk dengan triangle CSS.
   arrow.textContent = "";
   headingRow.appendChild(arrow);
   headerWrap.appendChild(headingRow);
 
-  // FIX: dulu #comment-count (elemen ASLI, yang juga dipakai di baris
-  // sort) ditarik paksa ke sini lewat headerWrap.appendChild(countEl) --
-  // itu yang bikin baris count+sort di bawah kehilangan elemennya. Sekarang
-  // dibuat SPAN BARU khusus buat preview di header (angkanya disinkronkan
-  // di updateCommentToggleHeader), sementara #comment-count asli TETAP di
-  // dalam sortRow, tidak dipindah sama sekali.
   const headerCountEl = document.createElement("span");
   headerCountEl.id = "comment-count-header";
   headerCountEl.style.cssText = "font-size:.8rem;color:var(--text-muted)";
@@ -1626,35 +1239,12 @@ function updateCommentToggleHeader(topLevel) {
   previewEl.style.display = "none";
   headerWrap.appendChild(previewEl);
 
-  // ---- Wrapper konten yang di-toggle (input, baris count+sort, daftar
-  // komentar) supaya bisa dianimasikan smooth SEKALIGUS, tanpa mengubah
-  // elemen aslinya (cuma dipindah ke dalam wrapper, urutan & struktur
-  // internalnya dipertahankan utuh). ----
   const contentWrap = document.createElement("div");
   contentWrap.id = "comment-expand-content";
   contentWrap.className = "comment-expand-content";
   list.parentNode.insertBefore(contentWrap, box || sortRow || list);
-  // FIX (dipertahankan): sortRow (satu baris utuh count+sort) yang
-  // dipindah, bukan sortNewest/sortOldest satu-satu -- struktur
-  // flex/space-between aslinya tetap sama persis seperti di HTML.
-  //
-  // PENYEMPURNAAN (dikembalikan sesuai permintaan): urutan penempatan
-  // TETAP [box, sortRow, list] seperti semula -- kolom "Tulis komentar"
-  // balik ke posisi PALING ATAS (persis kondisi awal). Yang jadi header
-  // & scrollable hanyalah daftar komentar orang lain (sortRow + list,
-  // sekarang tanpa sticky), yang posisinya tepat di bawah kolom input, dan
-  // tetap berada di atas section "Video Terkait" (karena section komentar
-  // & aside Video Terkait adalah dua blok terpisah di watch.html -- lihat
-  // .watch-layout -- urutan di dalam komentar tidak memengaruhi itu).
   [box, sortRow, list].forEach(el => { if (el) contentWrap.appendChild(el); });
 
-  // ---------- Compact mode saat daftar komentar di-scroll ----------
-  // Begitu user scroll #comment-list menjauh dari paling atas, header
-  // (sekarang tidak lagi sticky) & item komentar jadi lebih padat (padding
-  // dikurangi lewat CSS class "comments-scrolled", transisinya diatur CSS
-  // transition ~220-250ms di injectCommentToggleStyles). Balik normal lagi
-  // begitu scroll kembali ke posisi paling atas. Ini scroll INTERNAL milik
-  // #comment-list saja, TIDAK ada hubungannya dengan scroll halaman utama.
   if (list) {
     list.addEventListener("scroll", () => {
       contentWrap.classList.toggle("comments-scrolled", list.scrollTop > 8);
@@ -1663,16 +1253,9 @@ function updateCommentToggleHeader(topLevel) {
 
   function applyState(expanded, animate) {
     commentSectionExpanded = expanded;
-    // FIX: dulu di sini juga diisi "▴"/"▾" (arrow.textContent = expanded ?
-    // "▴" : "▾"). Sekarang textContent tidak lagi disentuh -- rotasi arah
-    // panah sepenuhnya ditangani CSS via selector
-    // .comment-toggle-header[aria-expanded="true"] .comment-toggle-arrow,
-    // yang dipicu oleh setAttribute("aria-expanded", ...) tepat di bawah ini.
     headerWrap.setAttribute("aria-expanded", String(expanded));
 
     if (!animate) {
-      // Terapkan langsung tanpa transisi -- dipakai saat load awal saja,
-      // supaya tidak ada animasi yang kelihatan saat halaman baru dibuka.
       contentWrap.style.transition = "none";
       if (expanded) {
         contentWrap.style.display = "";
@@ -1683,7 +1266,7 @@ function updateCommentToggleHeader(topLevel) {
         contentWrap.style.maxHeight = "0px";
         contentWrap.classList.remove("is-open");
         contentWrap.style.display = "none";
-        contentWrap.style.removeProperty("overflow"); // balik ke overflow:hidden bawaan class
+        contentWrap.style.removeProperty("overflow");
       }
       void contentWrap.offsetWidth;
       contentWrap.style.transition = "";
@@ -1693,15 +1276,9 @@ function updateCommentToggleHeader(topLevel) {
       const target = contentWrap.scrollHeight;
       contentWrap.style.maxHeight = "0px";
       requestAnimationFrame(() => { contentWrap.style.maxHeight = target + "px"; });
-      // Lepas batas tinggi setelah animasi selesai, supaya konten yang
-      // tinggi berubah belakangan (komentar baru dst) tidak terpotong.
       setTimeout(() => {
         if (commentSectionExpanded) {
           contentWrap.style.maxHeight = "none";
-          // overflow:visible dipertahankan di sini walau sub-header sudah
-          // tidak sticky lagi -- tetap aman & tidak berdampak apa-apa,
-          // cuma memastikan konten tidak ter-clip kalau ada elemen lain
-          // di dalam wrapper ini yang butuh melebihi batas (mis. dropdown).
           contentWrap.style.setProperty("overflow", "visible", "important");
         }
       }, 320);
@@ -1716,12 +1293,9 @@ function updateCommentToggleHeader(topLevel) {
       setTimeout(() => { if (!commentSectionExpanded) contentWrap.style.display = "none"; }, 300);
     }
 
-    // Preview cuma relevan saat collapsed -- refresh setiap kali status berubah.
     updateCommentToggleHeader(allComments.filter(c => !c.parentId));
   }
 
-  // Kalau sedang expanded dan tinggi konten berubah (komentar/reply baru),
-  // sinkronkan ulang max-height supaya tidak ada bagian yang terpotong.
   syncCommentExpandHeight = function () {
     if (!commentSectionExpanded) return;
     if (contentWrap.style.maxHeight !== "none") {
@@ -1737,7 +1311,7 @@ function updateCommentToggleHeader(topLevel) {
     }
   });
 
-  applyState(false, false); // mulai collapsed, tanpa animasi di load awal
+  applyState(false, false);
 })();
 
 loadVideo();
