@@ -448,7 +448,13 @@ async function loadRelated() {
 let allComments = [];
 let userReactions = {};        // { [commentOrReplyId]: "like" | "dislike" }
 let commentSortOrder = "desc";
-let commentDisplayLimit = 8;
+// PENYEMPURNAAN: default tampilan komentar dipersingkat jadi 2 komentar
+// teratas saja (bukan langsung 8) supaya "Video Terkait" tidak ketarik
+// jauh ke bawah saat komentar banyak. Tombol "Lihat komentar lainnya"
+// menambah 8 komentar per klik (COMMENT_BATCH_SIZE) -- bukan langsung
+// menampilkan semua sekaligus -- biar tetap ringan kalau komentarnya
+// sampai puluhan/ratusan.
+let commentDisplayLimit = 2;
 const COMMENT_BATCH_SIZE = 8;
 let unsubscribeComments = null;
 const pendingReactions = new Set();
@@ -495,11 +501,14 @@ function renderCommentsList() {
   list.innerHTML = visible.map(c => renderComment(c, allComments)).join("")
     || `<p style="color:var(--text-muted)">Belum ada komentar.<br>Tulis komentar pertama...</p>`;
 
+  // PENYEMPURNAAN: teks tombol diubah jadi "Lihat komentar lainnya (N)"
+  // -- klik menambah COMMENT_BATCH_SIZE (8) komentar berikutnya, bukan
+  // menampilkan semua sekaligus (lihat listener klik di bawah).
   if (topLevel.length > commentDisplayLimit) {
     const sisa = topLevel.length - commentDisplayLimit;
     list.innerHTML += `
       <button class="share-btn" id="btn-load-more-comments" style="width:100%;margin-top:10px">
-        Muat lebih banyak (${sisa} lagi)
+        Lihat komentar lainnya (${sisa})
       </button>`;
   }
 
@@ -522,6 +531,10 @@ function renderCommentsList() {
   if (typeof syncCommentExpandHeight === "function") syncCommentExpandHeight();
 }
 
+// PENYEMPURNAAN: klik "Lihat komentar lainnya" menambah COMMENT_BATCH_SIZE
+// (8) komentar berikutnya per klik -- bukan langsung menampilkan semua
+// sekaligus -- supaya tetap ringan/tidak berat kalau komentar sampai
+// puluhan/ratusan.
 document.getElementById("comment-list").addEventListener("click", (e) => {
   if (e.target.id === "btn-load-more-comments") {
     commentDisplayLimit += COMMENT_BATCH_SIZE;
@@ -532,7 +545,7 @@ document.getElementById("comment-list").addEventListener("click", (e) => {
 document.querySelectorAll("#sort-newest, #sort-oldest").forEach(btn => {
   btn.addEventListener("click", () => {
     commentSortOrder = btn.dataset.sort;
-    commentDisplayLimit = COMMENT_BATCH_SIZE;
+    commentDisplayLimit = 2;
     document.querySelectorAll("#sort-newest, #sort-oldest").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     listenComments();
