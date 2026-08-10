@@ -387,7 +387,14 @@ let allComments = [];
 let userReactions = {};
 let commentSortOrder = "desc";
 let commentDisplayLimit = 1;
-const COMMENT_BATCH_SIZE = 5;
+// PENYEMPURNAAN: pola 2 tahap untuk "Lihat komentar lainnya" --
+//   Tahap 0 (default): 1 komentar tampil.
+//   Tahap 1 (klik pertama): naik ke COMMENT_FIRST_REVEAL (3) komentar,
+//     bisa discroll di dalam #comment-list (sudah scrollable bawaan).
+//   Tahap 2 (klik lagi, kalau masih ada sisa): langsung tampilkan SEMUA
+//     komentar publik yang tersisa sekaligus -- bukan nambah sedikit-
+//     sedikit lagi (5-5-5 dst). Lihat listener klik di bawah.
+const COMMENT_FIRST_REVEAL = 3;
 let unsubscribeComments = null;
 const pendingReactions = new Set();
 let activeReplyBox = null;
@@ -446,7 +453,14 @@ function renderCommentsList() {
 
 document.getElementById("comment-list").addEventListener("click", (e) => {
   if (e.target.id === "btn-load-more-comments") {
-    commentDisplayLimit += COMMENT_BATCH_SIZE;
+    // Tahap 1 (klik pertama): dari default 1 -> naik ke 3
+    // (COMMENT_FIRST_REVEAL). Tahap 2 (klik lagi, kalau masih ada sisa):
+    // langsung tampilkan SEMUA komentar publik yang tersisa sekaligus --
+    // Infinity di sini aman dipakai untuk .slice(0, Infinity), hasilnya
+    // ambil semua elemen array.
+    commentDisplayLimit = commentDisplayLimit < COMMENT_FIRST_REVEAL
+      ? COMMENT_FIRST_REVEAL
+      : Infinity;
     renderCommentsList();
   }
 });
@@ -520,7 +534,7 @@ function renderComment(c, all) {
   return `
     <div class="comment-item" style="max-width:100%">
       <img src="${c.userPhoto || 'https://via.placeholder.com/34'}" alt="" style="flex-shrink:0">
-      <div style="flex:1;min-width:0">
+      <div class="comment-body" style="flex:1;min-width:0">
         <div style="font-size:.85rem;font-weight:600;${wrapStyle}">${escapeHtml(c.userName || 'User')}
           <span style="font-weight:400;color:var(--text-muted);font-size:.72rem">· ${formatCommentDate(c.createdAt)}</span>
         </div>
@@ -541,7 +555,7 @@ function renderComment(c, all) {
           const rReaction = userReactions[r.id];
           const rIsOwner = currentUser && currentUser.uid === r.uid;
           return `
-          <div style="margin-top:8px;padding-left:14px;border-left:2px solid var(--border);max-width:100%">
+          <div class="comment-body" style="margin-top:8px;padding-left:14px;border-left:2px solid var(--border);max-width:100%">
             <div style="font-size:.8rem;font-weight:600;${wrapStyle}">${escapeHtml(r.userName)}
               <span style="font-weight:400;color:var(--text-muted);font-size:.7rem">· ${formatCommentDate(r.createdAt)}</span>
             </div>
@@ -597,6 +611,18 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
 });
 
 document.getElementById("comment-list").addEventListener("click", async (e) => {
+  // --- Ketuk RUANG KOSONG di baris komentar -> tutup section komentar ---
+  // Dicek PALING AWAL, sebelum aksi lain: kalau yang diklik PERSIS elemen
+  // ".comment-body" itu sendiri (bukan salah satu anak di dalamnya seperti
+  // teks/tombol Balas/Hapus/reaksi -- itu semua elemen terpisah, jadi
+  // e.target-nya beda), berarti user nge-tap area kosong di sebelah kanan
+  // baris komentar. Itu sinyal "sudah selesai baca, mau nutup" -- jadi
+  // langsung nutup komentar, sama seperti nge-klik tombol "Tutup Komentar".
+  if (e.target.classList.contains("comment-body") && closeCommentsSection) {
+    closeCommentsSection();
+    return;
+  }
+
   const delId = e.target.dataset.del;
   if (delId) {
     await deleteDoc(doc(db, "comments", delId));
@@ -1101,6 +1127,11 @@ function getNewestTopLevelComment(topLevel) {
 let commentSectionExpanded = false;
 let lastKnownCommentCount = null;
 let syncCommentExpandHeight = null;
+// Diisi di dalam setupCollapsibleCommentsSection() -- dipanggil dari
+// listener klik #comment-list (di luar IIFE itu) supaya nge-tap ruang
+// kosong di baris komentar (class "comment-body") bisa langsung nutup
+// section komentar, bukan cuma lewat tombol "Tutup Komentar"/header.
+let closeCommentsSection = null;
 
 let previewCandidates = [];
 let previewCommentId = null;
@@ -1264,13 +1295,19 @@ function updateCommentToggleHeader(topLevel) {
   closeBtn.style.cssText = "width:100%;margin-top:12px";
   contentWrap.appendChild(closeBtn);
 
-  closeBtn.addEventListener("click", () => {
+  // Fungsi tutup dipakai ulang oleh: tombol ini, DAN listener klik
+  // "ruang kosong" (.comment-body) di #comment-list -- lihat variabel
+  // global closeCommentsSection yang di-assign di sini.
+  function doCloseComments() {
     applyState(false, true);
     // Scroll halus balik ke posisi heading "Komentar", bukan ke atas
     // halaman -- supaya user tetap berada di konteks yang sama (dekat
     // video), cuma daftar komentarnya yang tertutup.
     headerWrap.scrollIntoView({ behavior: "smooth", block: "start" });
-  });
+  }
+  closeCommentsSection = doCloseComments;
+
+  closeBtn.addEventListener("click", doCloseComments);
 
   if (list) {
     list.addEventListener("scroll", () => {
