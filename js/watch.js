@@ -877,14 +877,38 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
 // Sekarang ngikutin pola app populer (IG/YouTube/TikTok): video DIBIARKAN
 // di tempatnya, gak dipindah-pindah sama sekali. Yang jadi overlay cuma
 // kolom komentar -> nempel sebagai bar full-width di BAWAH layar, pas di
-// atas keyboard. Jauh lebih simpel & stabil karena cuma gantung ke 1 nilai
-// (tinggi keyboard dari visualViewport), bukan ke banyak perhitungan posisi
-// elemen lain yang gampang salah hitung.
+// atas keyboard.
+//
+// FIX (posisi vs keyboard): sebelumnya posisi bar dihitung dari
+// `window.innerHeight - visualViewport.height`. Masalahnya begitu input
+// difokus, sebagian browser mobile (mis. Brave/Chrome Android) JUGA ikut
+// menyembunyikan address bar bersamaan dengan keyboard muncul -- itu bikin
+// window.innerHeight ikut membesar di saat yang sama, sehingga selisih yang
+// dihitung jadi "tinggi keyboard + tinggi address bar yang baru hilang",
+// bukan cuma tinggi keyboard murni. Hasilnya jarak kosong lebar di atas
+// keyboard, dan besarnya beda-beda tiap device/browser (Android vs iPhone).
+//
+// Fix: posisikan bar pakai `top: visualViewport.offsetTop + visualViewport.height
+// - tinggiBar`, BUKAN `bottom` berbasis window.innerHeight. visualViewport
+// murni merepresentasikan area yang benar-benar terlihat (sudah dikurangi
+// keyboard), jadi tidak ikut kebawa oleh perubahan address bar -- hasilnya
+// konsisten nempel pas di atas keyboard baik di Android maupun iPhone.
+//
+// FIX (halaman "geser sendiri" setelah kirim komentar): sebelumnya tinggi
+// #video-meta + #comments-heading diukur ULANG di dalam deactivate(), pas
+// video-meta/comments-heading itu sendiri sedang di tengah-tengah transisi
+// CSS (height:0 -> tinggi asli). Kalau addDoc() (submit komentar) kebetulan
+// selesai & memicu blur hampir bersamaan, pengukuran itu bisa kena nilai
+// tengah-transisi yang belum stabil -- kompensasi scroll jadi salah besar
+// dan halaman kelihatan "dilempar" jauh ke bawah/atas.
+// Fix: tinggi ASLI (sebelum dikecilkan) disimpan sekali di activate(),
+// dipakai lagi persis di deactivate() -- tidak perlu ukur ulang di tengah
+// animasi sama sekali.
 //
 // PENYEMPURNAAN: padding kiri/kanan/bawah simetris di segala device
 // (termasuk notch/gesture-bar) sekarang ditangani lewat CSS
 // (.comment-box.is-focused pakai env(safe-area-inset-*), lihat style.css)
-// -- JS di sini TETAP hanya mengurus tinggi keyboard, tidak perlu diubah.
+// -- JS di sini TETAP hanya mengurus posisi & tinggi kompensasi scroll.
 let commentZoomController = null;
 
 function setupCommentFocusZoom() {
@@ -896,12 +920,13 @@ function setupCommentFocusZoom() {
   let isActive = false;
   let placeholder = null; // jaga tinggi ruang aslinya biar konten di bawah gak "loncat"
   let rafId = null; // buat nunda perhitungan posisi sampai browser selesai 1 frame animasi
+  let cachedRevealHeight = 0; // tinggi #video-meta + #comments-heading, diukur SEBELUM dikecilkan (dipakai lagi di deactivate)
 
-  function getKeyboardOffset() {
-    const vv = window.visualViewport;
-    if (!vv) return 0;
-    const gap = window.innerHeight - vv.height - vv.offsetTop;
-    return gap > 24 ? gap : 0;
+  function outerHeight(el) {
+    if (!el) return 0;
+    const cs = getComputedStyle(el);
+    return el.getBoundingClientRect().height
+      + parseFloat(cs.marginTop || 0) + parseFloat(cs.marginBottom || 0);
   }
 
   function positionBar() {
@@ -910,12 +935,35 @@ function setupCommentFocusZoom() {
     rafId = requestAnimationFrame(() => {
       rafId = null;
       if (!isActive) return;
-      box.style.setProperty("bottom", getKeyboardOffset() + "px", "important");
+      const vv = window.visualViewport;
+      if (!vv) {
+        // Fallback kalau visualViewport tidak didukung: tetap nempel di
+        // bawah layar seperti perilaku semula.
+        box.style.setProperty("top", "auto", "important");
+        box.style.setProperty("bottom", "0px", "important");
+        return;
+      }
+      // Posisi dihitung dari tepi BAWAH area yang benar-benar terlihat
+      // (offsetTop + height visualViewport) -- murni mengikuti tinggi
+      // keyboard, tidak ikut kebawa saat address bar browser ikut
+      // hilang/muncul bersamaan dengan keyboard.
+      const boxHeight = box.getBoundingClientRect().height;
+      const top = vv.offsetTop + vv.height - boxHeight;
+      box.style.setProperty("bottom", "auto", "important");
+      box.style.setProperty("top", top + "px", "important");
     });
   }
 
   function activate() {
     if (input.disabled || isActive) return;
+
+    // Simpan tinggi ASLI video-meta + comments-heading di sini, SEBELUM
+    // class "comment-focus-active" mengecilkannya ke height:0 -- supaya
+    // deactivate() nanti tidak perlu (dan tidak boleh) mengukur ulang di
+    // tengah transisi CSS.
+    const meta = document.getElementById("video-meta");
+    const heading = document.getElementById("comments-heading");
+    cachedRevealHeight = outerHeight(meta) + outerHeight(heading);
 
     const rect = box.getBoundingClientRect();
     placeholder = document.createElement("div");
@@ -926,7 +974,6 @@ function setupCommentFocusZoom() {
     box.style.setProperty("top", "auto", "important");
     box.style.setProperty("left", "0", "important");
     box.style.setProperty("right", "0", "important");
-    box.style.setProperty("bottom", "0", "important");
     box.style.setProperty("z-index", "999", "important");
     box.style.setProperty("margin", "0", "important");
     box.style.setProperty("border-radius", "0", "important");
@@ -943,33 +990,14 @@ function setupCommentFocusZoom() {
     if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
 
     const scrollYBefore = window.scrollY;
-
-    // FIX: scroll ikut "geser" sendiri saat komentar dikirim -----------
-    // Sebelumnya kompensasi scroll dihitung dari SELISIH TINGGI SELURUH
-    // DOKUMEN (document.documentElement.scrollHeight sebelum vs sesudah
-    // class "comment-focus-active" dilepas). Masalahnya, saat user kirim
-    // komentar, addDoc() memicu onSnapshot yang HAMPIR BERSAMAAN mengubah
-    // isi #comment-list (komentar baru masuk paling atas, dst) -- padahal
-    // #comment-list ada DI BAWAH kotak komentar dan perubahan tingginya
-    // TIDAK memengaruhi posisi apa pun di ATAS kotak komentar. Karena
-        // dihitung dari tinggi TOTAL dokumen, perubahan #comment-list ikut
-    // "tercampur" ke delta -- hasilnya over/under-compensate, halaman
-    // kelihatan geser sendiri padahal seharusnya diam di tempat.
-    //
-    // Fix: ukur langsung tinggi #video-meta + #comments-heading (dua
-    // elemen yang di-collapse height:0 saat fokus, lalu muncul lagi saat
-    // blur) -- BUKAN tinggi total dokumen. Dengan begini, perubahan
-    // #comment-list (komentar baru masuk, komentar lama tergeser ke
-    // bawah) sama sekali tidak ikut mempengaruhi hitungan, karena memang
-    // tidak relevan terhadap posisi kotak komentar & konten di atasnya.
-    function outerHeight(el) {
-      if (!el) return 0;
-      const cs = getComputedStyle(el);
-      return el.getBoundingClientRect().height
-        + parseFloat(cs.marginTop || 0) + parseFloat(cs.marginBottom || 0);
-    }
     const meta = document.getElementById("video-meta");
     const heading = document.getElementById("comments-heading");
+
+    // Matikan transisi height SEMENTARA supaya meta/heading langsung balik
+    // ke tinggi aslinya seketika (bukan animasi ~beberapa ratus ms) --
+    // memastikan tidak ada nilai tengah-transisi yang ikut terbaca kalau
+    // ada kode lain yang kebetulan mengukur elemen ini di frame yang sama.
+    [meta, heading].forEach(el => { if (el) el.style.setProperty("transition", "none", "important"); });
 
     box.classList.remove("is-focused");
     document.body.classList.remove("comment-focus-active");
@@ -985,18 +1013,21 @@ function setupCommentFocusZoom() {
 
     // Paksa reflow supaya tinggi video-meta/heading yang baru saja
     // dikembalikan (dari height:0 ke tinggi aslinya) sudah pasti
-    // ter-update sebelum diukur.
+    // ter-update sebelum dipakai di bawah.
     void document.documentElement.offsetHeight;
 
-    // Sebelum blur, meta & heading di-force height:0 oleh class
-    // "comment-focus-active" -- jadi tinggi "before" mereka sudah pasti 0,
-    // tidak perlu diukur dua kali. Cukup ukur tinggi "after" (sekarang,
-    // setelah class dilepas) sebagai jumlah ruang yang baru saja muncul
-    // kembali di ATAS kotak komentar.
-    const revealedHeight = outerHeight(meta) + outerHeight(heading);
-    if (revealedHeight > 0) {
-      window.scrollTo(0, scrollYBefore + revealedHeight);
+    // Pakai tinggi yang sudah disimpan di activate() (sebelum dikecilkan),
+    // BUKAN mengukur ulang sekarang -- ini yang menghindari "loncat" scroll
+    // akibat pengukuran kena nilai tengah-transisi.
+    if (cachedRevealHeight > 0) {
+      window.scrollTo(0, scrollYBefore + cachedRevealHeight);
     }
+
+    // Kembalikan transition normal di frame berikutnya, supaya toggle
+    // fokus/blur selanjutnya tetap animasinya halus seperti semula.
+    requestAnimationFrame(() => {
+      [meta, heading].forEach(el => { if (el) el.style.removeProperty("transition"); });
+    });
   }
 
   input.addEventListener("focus", activate);
