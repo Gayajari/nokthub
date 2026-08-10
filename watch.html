@@ -139,14 +139,22 @@
           </span>
         </div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px">
+      <!-- FIX jarak: margin-top disamakan jadi 8px (sebelumnya 16px) supaya
+           persis sama dengan margin-bottom .comment-box (lihat style.css)
+           dan margin-top #comment-list di bawah -- jarak kirim→baris ini
+           dan baris ini→daftar komentar jadi simetris, tidak renggang
+           sebelah. -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
         <span style="font-size:.8rem;color:var(--text-muted)" id="comment-count">0 komentar</span>
         <div style="display:flex;gap:6px">
           <button class="share-btn" id="sort-newest" data-sort="desc">Terbaru</button>
           <button class="share-btn" id="sort-oldest" data-sort="asc">Terlama</button>
         </div>
       </div>
-      <div id="comment-list" style="margin-top:12px"></div>
+      <!-- FIX jarak: margin-top disamakan jadi 8px (sebelumnya 12px), selaras
+           dengan margin di atas supaya jarak baris sort→daftar komentar sama
+           persis dengan jarak kirim→baris sort. -->
+      <div id="comment-list" style="margin-top:8px"></div>
     </section>
   </div>
 
