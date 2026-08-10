@@ -905,10 +905,20 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
 // dipakai lagi persis di deactivate() -- tidak perlu ukur ulang di tengah
 // animasi sama sekali.
 //
-// PENYEMPURNAAN: padding kiri/kanan/bawah simetris di segala device
-// (termasuk notch/gesture-bar) sekarang ditangani lewat CSS
-// (.comment-box.is-focused pakai env(safe-area-inset-*), lihat style.css)
-// -- JS di sini TETAP hanya mengurus posisi & tinggi kompensasi scroll.
+// FIX TAMBAHAN (halaman masih "geser sendiri" walau sudah pakai
+// cachedRevealHeight): window.scrollTo() di deactivate() sebelumnya
+// dieksekusi SINKRON, tepat saat input.blur() dipanggil. Tapi penutupan
+// keyboard oleh OS/browser sendiri BUKAN proses instan -- ada animasi
+// (~100-300ms) yang juga memicu perubahan visualViewport dan browser
+// SENDIRI ikut mengoreksi posisi scroll di tengah proses itu. Kompensasi
+// manual kita yang jalan lebih dulu jadi "rebutan" dengan koreksi native
+// browser -- hasil akhirnya scroll meleset jauh (halaman kelihatan
+// "dilempar" ke atas/bawah setelah kirim komentar).
+// Fix: tunda window.scrollTo() sampai visualViewport benar-benar selesai
+// berubah (resize event, menandakan keyboard sudah tertutup penuh), baru
+// kompensasi dijalankan -- jadi tidak lagi beradu dengan proses native
+// browser. Ada fallback timer 350ms untuk kondisi visualViewport tidak
+// berubah sama sekali (mis. desktop / keyboard tidak muncul).
 let commentZoomController = null;
 
 function setupCommentFocusZoom() {
@@ -1016,11 +1026,40 @@ function setupCommentFocusZoom() {
     // ter-update sebelum dipakai di bawah.
     void document.documentElement.offsetHeight;
 
-    // Pakai tinggi yang sudah disimpan di activate() (sebelum dikecilkan),
-    // BUKAN mengukur ulang sekarang -- ini yang menghindari "loncat" scroll
-    // akibat pengukuran kena nilai tengah-transisi.
-    if (cachedRevealHeight > 0) {
-      window.scrollTo(0, scrollYBefore + cachedRevealHeight);
+    // FIX: tunda kompensasi scroll manual sampai keyboard BENAR-BENAR
+    // selesai menutup (ditandai event "resize" pada visualViewport),
+    // supaya tidak beradu dengan koreksi posisi native yang dilakukan
+    // browser sendiri selama animasi penutupan keyboard. Fallback timer
+    // 350ms menjaga kalau visualViewport ternyata tidak berubah sama
+    // sekali (mis. di desktop, atau keyboard memang tidak sempat muncul).
+    const applyCompensation = () => {
+      // Pakai tinggi yang sudah disimpan di activate() (sebelum
+      // dikecilkan), BUKAN mengukur ulang sekarang -- ini yang
+      // menghindari "loncat" scroll akibat pengukuran kena nilai
+      // tengah-transisi.
+      if (cachedRevealHeight > 0) {
+        window.scrollTo(0, scrollYBefore + cachedRevealHeight);
+      }
+    };
+
+    if (window.visualViewport) {
+      let applied = false;
+      const onVVResize = () => {
+        if (applied) return;
+        applied = true;
+        window.visualViewport.removeEventListener("resize", onVVResize);
+        requestAnimationFrame(applyCompensation);
+      };
+      window.visualViewport.addEventListener("resize", onVVResize);
+      setTimeout(() => {
+        if (!applied) {
+          applied = true;
+          window.visualViewport.removeEventListener("resize", onVVResize);
+          applyCompensation();
+        }
+      }, 350);
+    } else {
+      applyCompensation();
     }
 
     // Kembalikan transition normal di frame berikutnya, supaya toggle
