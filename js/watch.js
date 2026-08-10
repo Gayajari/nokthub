@@ -387,7 +387,7 @@ let allComments = [];
 let userReactions = {};
 let commentSortOrder = "desc";
 let commentDisplayLimit = 1;
-const COMMENT_BATCH_SIZE = 8;
+const COMMENT_BATCH_SIZE = 5;
 let unsubscribeComments = null;
 const pendingReactions = new Set();
 let activeReplyBox = null;
@@ -1248,6 +1248,29 @@ function updateCommentToggleHeader(topLevel) {
   contentWrap.className = "comment-expand-content";
   list.parentNode.insertBefore(contentWrap, box || sortRow || list);
   [box, sortRow, list].forEach(el => { if (el) contentWrap.appendChild(el); });
+
+  // ---- Tombol "Tutup Komentar" di PALING BAWAH daftar ----
+  // Toggle utama (headerWrap) ada di paling atas -- kalau user sudah
+  // scroll jauh ke bawah buat baca komentar publik, mereka harus scroll
+  // balik ke atas dulu buat nutup. Tombol ini kasih jalan pintas: dari
+  // manapun posisi scroll mereka di dalam daftar, 1x klik langsung
+  // menutup + halaman digeser halus balik ke section komentar (bukan ke
+  // atas video/halaman), biar tidak kelihatan "nyasar" tiba-tiba.
+  const closeBtn = document.createElement("button");
+  closeBtn.id = "btn-close-comments";
+  closeBtn.className = "share-btn";
+  closeBtn.type = "button";
+  closeBtn.textContent = "▲ Tutup komentar";
+  closeBtn.style.cssText = "width:100%;margin-top:12px";
+  contentWrap.appendChild(closeBtn);
+
+  closeBtn.addEventListener("click", () => {
+    applyState(false, true);
+    // Scroll halus balik ke posisi heading "Komentar", bukan ke atas
+    // halaman -- supaya user tetap berada di konteks yang sama (dekat
+    // video), cuma daftar komentarnya yang tertutup.
+    headerWrap.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 
   if (list) {
     list.addEventListener("scroll", () => {
