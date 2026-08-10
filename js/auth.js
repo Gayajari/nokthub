@@ -11,11 +11,11 @@ import {
 
 // ---------- Avatar default (untuk user yang daftar via email, tanpa foto Google) ----------
 export const DEFAULT_AVATARS = [
-  "assets/default-avatars/avatar1.webp",
-  "assets/default-avatars/avatar2.webp",
-  "assets/default-avatars/avatar3.webp",
-  "assets/default-avatars/avatar4.webp",
-  "assets/default-avatars/avatar5.webp",
+  "avatar1.webp",
+  "avatar2.webp",
+  "avatar3.webp",
+  "avatar4.webp",
+  "avatar5.webp",
 ];
 
 // Pilih avatar SECARA KONSISTEN berdasarkan uid -- 1 user akan selalu
