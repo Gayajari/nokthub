@@ -942,26 +942,34 @@ function setupCommentFocusZoom() {
     if (!isActive) return;
     if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
 
-    // FIX: lompatan scroll halaman setelah kirim komentar / blur textarea.
-    // Saat fokus, #video-meta & #comments-heading disembunyikan total
-    // (height:0) lewat class "comment-focus-active" di body. Begitu blur,
-    // class ini dicopot dan keduanya balik ke tinggi aslinya SECARA
-    // MENDADAK (tanpa transisi tinggi, cuma opacity yang bertransisi).
-    // Konten yang muncul lagi ini nambah tinggi TEPAT DI ATAS kolom
-    // komentar -- walau scrollY (dalam piksel) tidak diubah sama sekali,
-    // secara visual halaman kelihatan "melompat ke atas" (video/judul yang
-    // tadi disembunyikan jadi kelihatan lagi, komentar yang lagi dibaca
-    // user malah terdorong turun keluar dari posisi semula di layar).
-    //
-    // Fix: ukur tinggi dokumen SEBELUM & SESUDAH class dicopot, lalu
-    // tambahkan selisihnya ke scrollY -- supaya posisi baca user (komentar
-    // yang lagi dilihat, termasuk komentar baru yang baru saja terkirim)
-    // tetap persis di tempat yang sama di layar. Komentar baru tetap
-    // nambah di baris PALING ATAS daftar komentar (urutan Terbaru) dan
-    // mendorong komentar lain ke bawah SEPERTI BIASA -- yang dibenahi di
-    // sini murni supaya seluruh halaman tidak ikut "loncat" ke atas.
     const scrollYBefore = window.scrollY;
-    const heightBefore = document.documentElement.scrollHeight;
+
+    // FIX: scroll ikut "geser" sendiri saat komentar dikirim -----------
+    // Sebelumnya kompensasi scroll dihitung dari SELISIH TINGGI SELURUH
+    // DOKUMEN (document.documentElement.scrollHeight sebelum vs sesudah
+    // class "comment-focus-active" dilepas). Masalahnya, saat user kirim
+    // komentar, addDoc() memicu onSnapshot yang HAMPIR BERSAMAAN mengubah
+    // isi #comment-list (komentar baru masuk paling atas, dst) -- padahal
+    // #comment-list ada DI BAWAH kotak komentar dan perubahan tingginya
+    // TIDAK memengaruhi posisi apa pun di ATAS kotak komentar. Karena
+        // dihitung dari tinggi TOTAL dokumen, perubahan #comment-list ikut
+    // "tercampur" ke delta -- hasilnya over/under-compensate, halaman
+    // kelihatan geser sendiri padahal seharusnya diam di tempat.
+    //
+    // Fix: ukur langsung tinggi #video-meta + #comments-heading (dua
+    // elemen yang di-collapse height:0 saat fokus, lalu muncul lagi saat
+    // blur) -- BUKAN tinggi total dokumen. Dengan begini, perubahan
+    // #comment-list (komentar baru masuk, komentar lama tergeser ke
+    // bawah) sama sekali tidak ikut mempengaruhi hitungan, karena memang
+    // tidak relevan terhadap posisi kotak komentar & konten di atasnya.
+    function outerHeight(el) {
+      if (!el) return 0;
+      const cs = getComputedStyle(el);
+      return el.getBoundingClientRect().height
+        + parseFloat(cs.marginTop || 0) + parseFloat(cs.marginBottom || 0);
+    }
+    const meta = document.getElementById("video-meta");
+    const heading = document.getElementById("comments-heading");
 
     box.classList.remove("is-focused");
     document.body.classList.remove("comment-focus-active");
@@ -975,14 +983,19 @@ function setupCommentFocusZoom() {
     }
     isActive = false;
 
-    // Paksa reflow supaya scrollHeight baru sudah pasti ter-update sebelum
-    // dibaca (perubahan tinggi video-meta/heading tidak pakai transisi,
-    // jadi seharusnya sudah instan, ini cuma jaga-jaga).
+    // Paksa reflow supaya tinggi video-meta/heading yang baru saja
+    // dikembalikan (dari height:0 ke tinggi aslinya) sudah pasti
+    // ter-update sebelum diukur.
     void document.documentElement.offsetHeight;
-    const heightAfter = document.documentElement.scrollHeight;
-    const delta = heightAfter - heightBefore;
-    if (delta !== 0) {
-      window.scrollTo(0, scrollYBefore + delta);
+
+    // Sebelum blur, meta & heading di-force height:0 oleh class
+    // "comment-focus-active" -- jadi tinggi "before" mereka sudah pasti 0,
+    // tidak perlu diukur dua kali. Cukup ukur tinggi "after" (sekarang,
+    // setelah class dilepas) sebagai jumlah ruang yang baru saja muncul
+    // kembali di ATAS kotak komentar.
+    const revealedHeight = outerHeight(meta) + outerHeight(heading);
+    if (revealedHeight > 0) {
+      window.scrollTo(0, scrollYBefore + revealedHeight);
     }
   }
 
