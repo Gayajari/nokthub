@@ -454,7 +454,7 @@ let commentSortOrder = "desc";
 // menambah 8 komentar per klik (COMMENT_BATCH_SIZE) -- bukan langsung
 // menampilkan semua sekaligus -- biar tetap ringan kalau komentarnya
 // sampai puluhan/ratusan.
-let commentDisplayLimit = 2;
+let commentDisplayLimit = 1;
 const COMMENT_BATCH_SIZE = 8;
 let unsubscribeComments = null;
 const pendingReactions = new Set();
@@ -545,7 +545,7 @@ document.getElementById("comment-list").addEventListener("click", (e) => {
 document.querySelectorAll("#sort-newest, #sort-oldest").forEach(btn => {
   btn.addEventListener("click", () => {
     commentSortOrder = btn.dataset.sort;
-    commentDisplayLimit = 2;
+    commentDisplayLimit = 1;
     document.querySelectorAll("#sort-newest, #sort-oldest").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     listenComments();
