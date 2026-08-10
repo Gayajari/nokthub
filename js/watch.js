@@ -728,14 +728,20 @@ function setupCommentFocusZoom() {
   let isActive = false;
   let placeholder = null;
   let rafId = null;
-  let cachedRevealHeight = 0;
-
-  function outerHeight(el) {
-    if (!el) return 0;
-    const cs = getComputedStyle(el);
-    return el.getBoundingClientRect().height
-      + parseFloat(cs.marginTop || 0) + parseFloat(cs.marginBottom || 0);
-  }
+  // FIX (penyebab video "kedorong ke atas" tiap kirim komentar): sebelumnya
+  // di sini disimpan cachedRevealHeight (tinggi #video-meta + #comments-heading)
+  // yang lalu DITAMBAHKAN ke posisi scroll lama saat kolom komentar ditutup.
+  // Itu itungan tambahan yang gampang meleset kalau tinggi elemen berubah
+  // dikit aja antara activate() dan deactivate() -- hasilnya scroll
+  // overshoot, video kelihatan "dipaksa naik/nongol" padahal seharusnya diem.
+  //
+  // Sekarang TIDAK ada itungan tinggi sama sekali. Yang disimpan cuma
+  // posisi scroll PERSIS sebelum kolom komentar difokuskan (scrollYAtActivate),
+  // dan itu yang dibalikin PERSIS apa adanya -- tidak ditambah/dikurangi
+  // apapun. Jadi halaman dijamin balik ke posisi yang SAMA PERSIS seperti
+  // sebelum diklik, terlepas dari elemen apapun yang berubah tinggi selama
+  // kolom komentar aktif.
+  let scrollYAtActivate = 0;
 
   function positionBar() {
     if (!isActive) return;
@@ -759,9 +765,10 @@ function setupCommentFocusZoom() {
   function activate() {
     if (input.disabled || isActive) return;
 
-    const meta = document.getElementById("video-meta");
-    const heading = document.getElementById("comments-heading");
-    cachedRevealHeight = outerHeight(meta) + outerHeight(heading);
+    // Simpan posisi scroll PERSIS di sini, sebelum satu pun style/class
+    // diubah -- inilah "titik nol" yang akan dikembalikan lagi di
+    // deactivate(), apa adanya, tanpa dihitung ulang dari tinggi elemen.
+    scrollYAtActivate = window.scrollY;
 
     const rect = box.getBoundingClientRect();
     placeholder = document.createElement("div");
@@ -787,7 +794,6 @@ function setupCommentFocusZoom() {
     if (!isActive) return;
     if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
 
-    const scrollYBefore = window.scrollY;
     const meta = document.getElementById("video-meta");
     const heading = document.getElementById("comments-heading");
 
@@ -808,9 +814,7 @@ function setupCommentFocusZoom() {
     void document.documentElement.offsetHeight;
 
     const applyCompensation = () => {
-      if (cachedRevealHeight > 0) {
-        window.scrollTo(0, scrollYBefore + cachedRevealHeight);
-      }
+      window.scrollTo(0, scrollYAtActivate);
     };
 
     // FIX (debounce): sebelumnya kompensasi scroll langsung dijalankan di
