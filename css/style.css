@@ -234,25 +234,15 @@ aside{
   filter:brightness(1.15);
 }
 
-/* ---------- Efek zoom kolom komentar ----------
-   Saat #comment-input difokus: video (player) dipin (position:fixed) di
-   posisi atas, gak ikut ke-scroll. Area di antara video dan kolom komentar
-   (judul, stats, share, desc, tags, judul "Komentar") di-collapse total
-   biar jaraknya rapat: video -> kolom komentar langsung. Kolom komentar
-   sendiri jadi position:fixed tepat di bawah video. Balik normal begitu
-   textarea kehilangan fokus (termasuk otomatis pas klik "Kirim"). */
-#player-container{
-  transition:none;
-}
-#player-container.is-pinned{
-  position:fixed;
-  z-index:59;
-  box-shadow:0 10px 28px rgba(0,0,0,.55);
-}
-#player-placeholder{
-  display:none;
-}
-
+/* ---------- Efek fokus kolom komentar ----------
+   Saat #comment-input difokus: video TETAP diam di tempatnya (tidak ikut
+   dipindah/dipin sama sekali). Judul, stats, share, desc, tags, dan judul
+   "Komentar" (#video-meta, #comments-heading) di-collapse total (opacity +
+   height 0) biar tidak menyita ruang, sementara kolom komentar sendiri
+   jadi position:fixed mengambang di bagian bawah layar, pas di atas
+   keyboard (lihat .comment-box.is-focused di bawah & logic-nya di
+   js/watch.js -> setupCommentFocusZoom). Balik normal begitu textarea
+   kehilangan fokus (termasuk otomatis pas klik "Kirim"). */
 #video-meta, #comments-heading{
   transition:opacity .12s ease;
 }
@@ -298,9 +288,6 @@ body.comment-focus-active #comments-heading{
 @keyframes comment-zoom-in{
   from{ transform:scale(.94); opacity:.5; }
   to{ transform:scale(1); opacity:1; }
-}
-#comment-box-placeholder{
-  display:none;
 }
 
 /* FIX: tombol "Kirim" (#btn-comment) sebelumnya nempel langsung ke bawah
