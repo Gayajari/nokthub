@@ -47,6 +47,67 @@ function applyCachedSiteSettings() {
   }
 }
 
+// ---------- Auto-pad favicon jadi kotak persegi aman ----------
+// MASALAH YANG DISELESAIKAN: admin bisa upload gambar apa saja lewat
+// dashboard (bulat, mepet tepi, potrait/landscape, ukuran sembarang) buat
+// dijadiin favicon. Favicon SELALU dirender browser di dalam kotak
+// persegi -- kalau gambar aslinya bulat & mepet ke tepi kanvas, ujungnya
+// gampang kepotong/keliatan pecah pas diperkecil ke 16-32px, atau kepotong
+// lagi kalau platform (Android/PWA) ikut membulatkan sudut kotaknya.
+//
+// SOLUSI: apapun gambar yang di-set di field "favicon" dashboard, gambar
+// itu digambar ulang di sini ke kanvas <canvas> persegi (128x128) dengan
+// padding aman (logo diperkecil biar ada jarak ke tepi, bukan mepet) dan
+// background transparan -- baru hasilnya (data URL) yang dipasang sebagai
+// favicon. Jadi admin tinggal upload apa saja, tidak perlu crop/edit
+// manual -- penyesuaian jadi otomatis di sini, setiap kali halaman dimuat.
+//
+// CATATAN teknis (kenapa ada try/catch & fallback): gambar diambil dari
+// domain lain (ibb.co) lewat <img crossOrigin="anonymous">. Ini cuma
+// berhasil dibaca ulang oleh canvas.toDataURL() kalau server gambar itu
+// mengirim header CORS yang mengizinkan (Access-Control-Allow-Origin).
+// Kalau ternyata TIDAK diizinkan, canvas akan "tainted" dan toDataURL()
+// melempar error -- di situasi itu fungsi ini resolve(null), dan
+// pemanggilnya (applySiteSettings) otomatis fallback pakai URL asli apa
+// adanya (favicon tetap muncul, cuma tanpa padding otomatis).
+function buildSquareFaviconDataUrl(url, size = 128, paddingRatio = 0.16) {
+  return new Promise((resolve) => {
+    if (!url) { resolve(null); return; }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        // Tidak diisi warna dulu -- canvas kosong = transparan (PNG alpha),
+        // jadi tidak ada kotak putih/hitam aneh di belakang logo.
+        const pad = size * paddingRatio;
+        const maxDim = size - pad * 2;
+        // Skala logo supaya sisi terpanjangnya pas di maxDim, lalu di-
+        // tengahkan -- ini yang memastikan logo apapun proporsinya
+        // (persegi, potrait, landscape) selalu berakhir dengan jarak
+        // aman yang sama ke semua tepi kanvas.
+        const scale = Math.min(maxDim / img.naturalWidth, maxDim / img.naturalHeight);
+        const drawW = img.naturalWidth * scale;
+        const drawH = img.naturalHeight * scale;
+        const dx = (size - drawW) / 2;
+        const dy = (size - drawH) / 2;
+        ctx.clearRect(0, 0, size, size);
+        ctx.drawImage(img, dx, dy, drawW, drawH);
+        resolve(canvas.toDataURL("image/png"));
+      } catch (e) {
+        // Canvas ke-taint (CORS ditolak server gambar) atau error lain --
+        // gagal diproses, biarkan caller pakai URL asli sebagai fallback.
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
 // ---------- Terapkan Pengaturan Website ke tampilan ----------
 // Field-field ini (Nama Website, Logo, Favicon, Warna Tema, GA ID) disambungkan
 // ke semua tempat nama web muncul di halaman. Kalau elemen terkait belum ada
@@ -139,8 +200,23 @@ function applySiteSettings() {
     } catch (e) { /* biarkan JSON-LD default kalau parsing gagal */ }
   }
 
+  // ---- Favicon: auto-pad jadi kotak persegi aman sebelum dipasang ----
+  // FIX: dulu faviconLink.href langsung diisi s.favicon apa adanya --
+  // kalau gambar yang di-upload admin bulat/mepet tepi, hasilnya bisa
+  // kepotong/pecah pas jadi favicon kecil. Sekarang, APAPUN yang di-set
+  // (custom dari dashboard ATAU fallback ke logo default) selalu
+  // diproses dulu lewat buildSquareFaviconDataUrl() di atas -- jadi
+  // hasil akhirnya selalu kotak persegi dengan padding aman, tanpa admin
+  // perlu crop/edit manual tiap ganti gambar. Kalau proses gagal (mis.
+  // dibatasi CORS oleh server gambar), otomatis fallback ke URL asli
+  // (favicon tetap tampil, cuma tanpa padding).
   const faviconLink = document.getElementById("site-favicon");
-  if (s.favicon && faviconLink) faviconLink.href = s.favicon;
+  if (faviconLink) {
+    const rawFavicon = s.favicon || DEFAULT_LOGO_URL;
+    buildSquareFaviconDataUrl(rawFavicon).then(dataUrl => {
+      faviconLink.href = dataUrl || rawFavicon;
+    });
+  }
 
   const themeMeta = document.getElementById("meta-theme-color");
   if (s.themeColor) {
