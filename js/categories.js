@@ -48,7 +48,7 @@ async function loadCategoryChips() {
     : null; // null = bukan di halaman category sama sekali -> "Semua" aktif
 
   row.innerHTML = `
-    <a href="index.html" class="cat-chip${activeSlug === null ? " active" : ""}" data-cat="all">
+    <a href="index.html" class="catnav-chip${activeSlug === null ? " active" : ""}" data-cat="all">
       ${ICON_ALL} Semua
     </a>`;
 
@@ -61,7 +61,7 @@ async function loadCategoryChips() {
       const isActive = activeSlug !== null && activeSlug === cat.slug;
       const chip = document.createElement("a");
       chip.href = `category.html?c=${encodeURIComponent(cat.slug)}`;
-      chip.className = "cat-chip" + (isActive ? " active" : "");
+      chip.className = "catnav-chip" + (isActive ? " active" : "");
       chip.dataset.cat = cat.slug;
       chip.innerHTML = `${iconFor(i)} ${escapeHtml(cat.name)}`;
       row.appendChild(chip);
@@ -73,7 +73,7 @@ async function loadCategoryChips() {
 
   // Chip yang aktif otomatis di-scroll ke tengah biar kelihatan penuh,
   // terutama kalau posisinya jauh di sisi kanan daftar kategori.
-  const activeChip = row.querySelector(".cat-chip.active");
+  const activeChip = row.querySelector(".catnav-chip.active");
   if (activeChip) {
     activeChip.scrollIntoView({ behavior: "instant", inline: "center", block: "nearest" });
   }
