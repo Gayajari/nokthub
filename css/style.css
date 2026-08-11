@@ -164,6 +164,11 @@ select.category-select{
 /* ---------- Watch page ---------- */
 .watch-layout{
   display:grid;grid-template-columns:2fr 1fr;gap:24px;padding:24px 0;
+  /* FIX: sebelumnya grid default align-items:stretch, jadi aside "Video
+     Terkait" dipaksa setinggi kolom video (yang berisi komentar panjang),
+     nyisa banyak ruang kosong di bawah daftar related. Dengan align-items:
+     start, aside cuma setinggi kontennya sendiri dan otomatis "mepet" ke
+     atas mengikuti tinggi video, bukan meregang ke bawah. */
   align-items:start;
 }
 .player-wrap{width:100%;aspect-ratio:16/9;background:#000;border-radius:var(--radius);overflow:hidden}
@@ -184,8 +189,15 @@ select.category-select{
 }
 .share-btn:hover{border-color:var(--accent);color:var(--accent)}
 
+/* ---------- Video Terkait: mepet ke atas kalau ada ruang ---------- */
+/* Sticky supaya begitu halaman discroll, panel related tetap kelihatan
+   selama masih ada ruang vertikal (tidak dipaksa ikut turun ke bawah).
+   "top" diberi jarak sedikit di bawah site-header yang sticky (~64-70px). */
 aside{
   position:sticky;
+  /* Dulu angka tebakan (82px) -- sekarang pakai --site-header-h yang diukur
+     otomatis oleh JS (lihat updateSiteHeaderHeightVar di js/watch.js),
+     ditambah jarak napas 14px, supaya presisi di segala ukuran navbar. */
   top:calc(var(--site-header-h, 68px) + 14px);
 }
 
@@ -222,6 +234,15 @@ aside{
   filter:brightness(1.15);
 }
 
+/* ---------- Efek fokus kolom komentar ----------
+   Saat #comment-input difokus: video TETAP diam di tempatnya (tidak ikut
+   dipindah/dipin sama sekali). Judul, stats, share, desc, tags, dan judul
+   "Komentar" (#video-meta, #comments-heading) di-collapse total (opacity +
+   height 0) biar tidak menyita ruang, sementara kolom komentar sendiri
+   jadi position:fixed mengambang di bagian bawah layar, pas di atas
+   keyboard (lihat .comment-box.is-focused di bawah & logic-nya di
+   js/watch.js -> setupCommentFocusZoom). Balik normal begitu textarea
+   kehilangan fokus (termasuk otomatis pas klik "Kirim"). */
 #video-meta, #comments-heading{
   transition:opacity .12s ease;
 }
@@ -242,12 +263,23 @@ body.comment-focus-active #comments-heading{
   z-index:60;
   border-radius:var(--radius);
   transition:box-shadow .25s ease;
+  /* FIX: jarak bawah kolom komentar (antara box "Tulis komentar" + tombol
+     kirim, dengan baris "Komentar N / Terbaru / Terlama" di bawahnya)
+     disamakan jadi 8px (sebelumnya sempat 14px lalu 6px) supaya PERSIS
+     sama dengan margin-top baris sort di watch.html dan margin-top
+     #comment-list -- tiga jarak (kirim→sort, sort→list) jadi simetris
+     dan konsisten, bukan cuma "cukup ruang" sembarangan. */
   margin-bottom:8px;
 }
 .comment-box.is-focused{
   position:fixed;
   background:var(--surface);
   border:1px solid var(--border);
+  /* PENYEMPURNAAN: padding kiri/kanan/bawah memakai env(safe-area-inset-*)
+     supaya popup tetap simetris & tidak kepotong home-indicator/notch di
+     segala device (iPhone dengan notch/dynamic island, HP Android dengan
+     gesture bar, dst). Di device tanpa safe-area, env(...) bernilai 0 jadi
+     hasilnya sama persis seperti padding:14px yang lama. */
   padding-top:14px;
   padding-right:calc(14px + env(safe-area-inset-right));
   padding-bottom:calc(14px + env(safe-area-inset-bottom));
@@ -260,17 +292,25 @@ body.comment-focus-active #comments-heading{
   to{ transform:scale(1); opacity:1; }
 }
 
+/* FIX: tombol "Kirim" (#btn-comment) sebelumnya nempel langsung ke bawah
+   textarea tanpa jarak, gampang keliatan numpuk ke elemen berikutnya.
+   Ini cuma spacing, tidak menyentuh ukuran/warna/posisi tombol. */
 #btn-comment{
   margin-top:8px;
   display:inline-block;
 }
 
+/* FIX: jarak atas baris tombol sort komentar, selaras dengan
+   margin-bottom .comment-box (8px) di atas -- total jarak antara kolom
+   komentar & baris Terbaru/Terlama sekarang simetris & rapat. */
 #sort-newest, #sort-oldest{
   margin-top:2px;
 }
 
 @media(max-width:900px){
   .watch-layout{grid-template-columns:1fr}
+  /* Di layar sempit, aside sudah stacked di bawah konten utama (1 kolom),
+     jadi sticky tidak relevan lagi -- dimatikan supaya tidak "nyangkut". */
   aside{position:static;top:auto}
 }
 
@@ -284,6 +324,8 @@ body.comment-focus-active #comments-heading{
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
+/* ---------- Responsive typography fine-tune ---------- */
+/* HP kecil (iPhone SE, Android ~360-480px): rapatkan header, kecilkan search */
 @media(max-width:480px){
   .header-row{gap:10px;padding:10px 14px}
   .brand{font-size:1.1rem}
@@ -293,12 +335,19 @@ body.comment-focus-active #comments-heading{
   .hero-info .eyebrow{font-size:.68rem}
 }
 
+/* Tablet / HP besar (481-768px) */
 @media(max-width:768px){
   .section-head{align-items:flex-start;flex-direction:column;gap:4px}
   .section-head .nav-btn{align-self:flex-end;margin-top:-28px}
   .card-title{font-size:.85rem}
 }
 
+/* ---------- FIX: arrow toggle "Komentar" ----------
+   Sebelumnya arrow pakai karakter Unicode "▾"/"▴" yang ditulis JS
+   (arrow.textContent = ...). Di sebagian HP/font, karakter itu gagal
+   render dan cuma muncul titik kecil. Diganti ke CSS triangle murni +
+   rotasi berbasis atribut aria-expanded (yang sudah di-set oleh JS),
+   jadi TIDAK perlu ubah JS sama sekali kecuali baris textContent-nya. */
 .comment-toggle-arrow{
   display:inline-block;
   width:0;
@@ -311,55 +360,4 @@ body.comment-focus-active #comments-heading{
 }
 .comment-toggle-header[aria-expanded="true"] .comment-toggle-arrow{
   transform:rotate(180deg);
-}
-/* ============================================================
-   NOKT HUB — Kategori: chip-row scroll horizontal
-   Tempel blok ini ke css/style.css (di bagian bawah, tidak
-   menimpa apapun yang sudah ada).
-   ============================================================ */
-.catnav-row{
-  display:flex;gap:8px;overflow-x:auto;
-  padding:0 14px 12px;
-  scroll-snap-type:x proximity;
-  -webkit-overflow-scrolling:touch;
-}
-.catnav-row::-webkit-scrollbar{display:none}
-.catnav-row{scrollbar-width:none}
-
-.catnav-chip{
-  display:flex;align-items:center;gap:6px;flex-shrink:0;
-  scroll-snap-align:start;
-  padding:7px 13px;border-radius:20px;
-  background:var(--surface);border:1px solid var(--border);
-  color:var(--text-muted);font-size:.78rem;font-weight:500;
-  cursor:pointer;user-select:none;white-space:nowrap;
-  text-decoration:none;
-  transition:background .18s ease, border-color .18s ease, color .18s ease, transform .12s ease;
-}
-.catnav-chip svg{
-  width:13px;height:13px;flex-shrink:0;
-  transition:transform .25s cubic-bezier(.34,1.56,.64,1), stroke .18s ease;
-}
-.catnav-chip:active{transform:scale(.94)}
-.catnav-chip.active{
-  background:var(--accent);border-color:var(--accent);color:#0A0A0B;
-}
-.catnav-chip.active svg{transform:rotate(-8deg) scale(1.1);stroke:#0A0A0B}
-.catnav-chip:not(.active):hover{border-color:var(--accent);color:var(--text)}
-.catnav-chip:not(.active):hover svg{transform:translateY(-1px)}
-
-.catnav-chip.active[data-cat="all"] svg{animation:nokt-catnav-spin 3s linear infinite}
-@keyframes nokt-catnav-spin{to{transform:rotate(352deg)}}
-
-/* Chip "Semua" dibuat sticky (menempel statis di kiri) -- chip kategori
-   lain (Bola, Cantik, Play vid, dst) akan lewat/masuk DI BAWAHNYA saat
-   baris digeser ke kiri, bukan ikut geser bersamaan. TIDAK ada perubahan
-   warna sama sekali di sini -- chip ini tetap pakai warna default yang
-   sama persis dengan .catnav-chip / .catnav-chip.active biasa (var(--surface)
-   saat non-aktif, var(--accent) saat aktif), cukup warna itu sudah solid/
-   opaque jadi otomatis "menutupi" chip lain yang lewat di baliknya. */
-.catnav-chip[data-cat="all"]{
-  position:sticky;
-  left:0;
-  z-index:5;
 }
