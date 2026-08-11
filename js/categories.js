@@ -1,13 +1,9 @@
 // ============================================================
 // NOKT HUB — Kategori dinamis (versi chip-row scroll horizontal)
-// PATCH:
-//  1) "Semua" dipindah ke wrapper TERPISAH di luar area scroll
-//     (fix: dulu overlap dengan chip lain karena position:sticky
-//     dipakai DI DALAM container yang sama dengan area scroll —
-//     lihat catnav-sticky vs catnav-scroll di CSS).
-//  2) Kategori terbaru tampil paling kiri di area scroll (prepend).
-// Struktur data/Firestore, filtering, dan class chip individual
-// (.catnav-chip) TIDAK berubah — cuma dibungkus 2 wrapper baru.
+// Kategori TIDAK dibuat manual: otomatis muncul saat admin
+// mengupload video dengan kategori baru (lihat admin.js: upsertCategory).
+// Ikon per kategori diambil dari js/icons.js (lihat file itu untuk
+// urutan prioritas: manual admin -> kata kunci otomatis -> hash fallback).
 // ============================================================
 import { db, collection, getDocs, orderBy, query } from "./firebase-config.js";
 import { resolveCategoryIcon, iconSvg } from "./icons.js";
@@ -21,27 +17,13 @@ async function loadCategoryChips() {
     ? (params.get("c") || "")
     : null;
 
-  // AREA 1 (catnav-sticky): cuma berisi "Semua", TIDAK ikut ter-scroll
-  // sama sekali karena berada di luar div overflow-x:auto.
-  // AREA 2 (catnav-scroll): semua chip kategori lain, ini yang di-scroll.
   row.innerHTML = `
-    <div class="catnav-sticky">
-      <a href="index.html" class="catnav-chip${activeSlug === null ? " active" : ""}" data-cat="all">
-        ${iconSvg("globe")} Semua
-      </a>
-    </div>
-    <div class="catnav-scroll" id="category-scroll"></div>
-  `;
-
-  const scrollArea = row.querySelector("#category-scroll");
+    <a href="index.html" class="catnav-chip${activeSlug === null ? " active" : ""}" data-cat="all">
+      ${iconSvg("globe")} Semua
+    </a>`;
 
   try {
-    // Kategori terbaru = paling kiri di area scroll.
-    // orderBy("createdAt","desc") -> hasil query kategori terbaru duluan,
-    // lalu di-appendChild berurutan seperti sebelumnya (tidak perlu
-    // unshift manual). Sesuaikan nama field ini kalau di admin.js/
-    // upsertCategory() field waktu-nya bukan "createdAt".
-    const q = query(collection(db, "categories"), orderBy("createdAt", "desc"));
+    const q = query(collection(db, "categories"), orderBy("name"));
     const snap = await getDocs(q);
     snap.forEach(d => {
       const cat = d.data();
@@ -52,24 +34,38 @@ async function loadCategoryChips() {
       chip.className = "catnav-chip" + (isActive ? " active" : "");
       chip.dataset.cat = cat.slug;
       chip.innerHTML = `${iconSvg(iconId)} ${escapeHtml(cat.name)}`;
-      scrollArea.appendChild(chip);
+      row.appendChild(chip);
     });
   } catch (e) {
     console.warn("Gagal memuat kategori:", e);
   }
 
-  applyScrollPosition(scrollArea, activeSlug);
+  applyScrollPosition(row, activeSlug);
 }
 
 // ---------- FIX: browser "mengingat" posisi scroll baris kategori ----------
-// Sama seperti sebelumnya, tapi sekarang target-nya adalah #category-scroll
-// (area scroll saja), bukan seluruh #category-row lagi.
-function applyScrollPosition(scrollArea, activeSlug) {
+// Beberapa browser (terutama Chrome) otomatis me-restore posisi scroll
+// elemen yang bisa di-scroll (bukan cuma scroll halaman utama) dari
+// kunjungan sebelumnya -- termasuk kalau halamannya dibuka ulang lewat
+// cache/back-forward (bfcache), atau bahkan kadang di reload biasa.
+// Efeknya: walau kode kita TIDAK pernah menyuruh geser baris kategori,
+// baris itu bisa muncul dalam kondisi sudah tergeser dari kunjungan
+// sebelumnya -- membuat chip "Semua" yang sticky kelihatan menutupi
+// sebagian chip lain secara aneh sejak awal halaman dibuka.
+//
+// Solusi: begitu tahu "Semua" yang harusnya aktif (activeSlug === null),
+// PAKSA posisi scroll balik ke 0 secara eksplisit -- jangan cuma
+// "membiarkan" default browser, karena defaultnya kadang bukan 0.
+function applyScrollPosition(row, activeSlug) {
   if (activeSlug === null) {
-    scrollArea.scrollLeft = 0;
-    requestAnimationFrame(() => { scrollArea.scrollLeft = 0; });
+    // "Semua" aktif -> selalu mulai dari posisi paling awal (0), apapun
+    // yang coba di-restore browser. requestAnimationFrame dipakai supaya
+    // ini dipaksakan SETELAH browser selesai mencoba restore-nya sendiri
+    // (yang kadang terjadi tepat setelah render/paint pertama).
+    row.scrollLeft = 0;
+    requestAnimationFrame(() => { row.scrollLeft = 0; });
   } else {
-    const activeChip = scrollArea.querySelector(".catnav-chip.active");
+    const activeChip = row.querySelector(".catnav-chip.active");
     if (activeChip) {
       activeChip.scrollIntoView({ behavior: "instant", inline: "center", block: "nearest" });
     }
@@ -82,6 +78,13 @@ function escapeHtml(s = "") {
 
 document.addEventListener("DOMContentLoaded", loadCategoryChips);
 
+// FIX tambahan: saat halaman dibuka lagi lewat tombol back/forward
+// browser, DOMContentLoaded TIDAK selalu jalan ulang (halaman diambil
+// dari bfcache) -- padahal posisi scroll baris kategori bisa saja masih
+// "nyangkut" dari sebelum user pindah halaman. "pageshow" jalan di kedua
+// kasus (baik load normal maupun restore dari bfcache), jadi dipakai
+// sebagai jaring pengaman tambahan supaya baris kategori selalu benar
+// posisinya, dari jalur manapun halaman ini dibuka.
 window.addEventListener("pageshow", (e) => {
   if (e.persisted) loadCategoryChips();
 });
