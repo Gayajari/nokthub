@@ -70,6 +70,68 @@ function applyCachedSiteSettings() {
 // melempar error -- di situasi itu fungsi ini resolve(null), dan
 // pemanggilnya (applySiteSettings) otomatis fallback pakai URL asli apa
 // adanya (favicon tetap muncul, cuma tanpa padding otomatis).
+// ---------- Deteksi batas konten asli logo (buang ruang kosong bawaan) ----------
+// MASALAH: file PNG yang di-upload admin sering SUDAH punya ruang kosong
+// sendiri di sekeliling logo/wajahnya (tidak mepet sampai ke tepi kanvas
+// aslinya). Kalau langsung dipadding lagi oleh buildSquareFaviconDataUrl,
+// hasilnya "dobel padding" -- logo kelihatan kekecilan di tengah kotak
+// favicon, dibanding favicon situs lain yang isinya penuh sampai hampir
+// ke tepi.
+//
+// FUNGSI INI: menganalisis piksel gambar (di kanvas kecil 128x128 supaya
+// cepat), membandingkan tiap piksel dengan warna di 4 sudut gambar
+// (dianggap sebagai "background"), lalu mencari kotak pembatas (bounding
+// box) area yang warnanya BEDA jauh dari background itu -- itulah "konten
+// asli" logonya. Ruang kosong bawaan di luar kotak itu nanti dibuang
+// sebelum logo dipadding ulang di buildSquareFaviconDataUrl.
+// Return null kalau gagal dianalisis (mis. gambar tertutup penuh / rata
+// satu warna) -- pemanggil akan pakai gambar utuh apa adanya sebagai fallback.
+function detectContentBounds(img) {
+  const N = 128;
+  try {
+    const tmp = document.createElement("canvas");
+    tmp.width = N; tmp.height = N;
+    const tctx = tmp.getContext("2d");
+    tctx.drawImage(img, 0, 0, N, N);
+    const data = tctx.getImageData(0, 0, N, N).data;
+
+    // Warna "background" = rata-rata 4 sudut gambar.
+    const corners = [[0,0],[N-1,0],[0,N-1],[N-1,N-1]];
+    let bgR=0, bgG=0, bgB=0;
+    corners.forEach(([x,y]) => {
+      const i = (y*N + x) * 4;
+      bgR += data[i]; bgG += data[i+1]; bgB += data[i+2];
+    });
+    bgR/=4; bgG/=4; bgB/=4;
+
+    const COLOR_THRESHOLD = 24; // jarak warna minimal supaya dianggap "konten"
+    let minX=N, minY=N, maxX=-1, maxY=-1;
+    for (let y=0; y<N; y++) {
+      for (let x=0; x<N; x++) {
+        const i = (y*N + x) * 4;
+        if (data[i+3] < 10) continue; // piksel benar-benar transparan, bukan konten
+        const dr = data[i]-bgR, dg = data[i+1]-bgG, db = data[i+2]-bgB;
+        if (Math.sqrt(dr*dr + dg*dg + db*db) > COLOR_THRESHOLD) {
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) return null; // tidak ada piksel yang beda cukup jauh dari background
+
+    const scaleX = img.naturalWidth / N;
+    const scaleY = img.naturalHeight / N;
+    return {
+      x: minX * scaleX, y: minY * scaleY,
+      width: (maxX - minX + 1) * scaleX, height: (maxY - minY + 1) * scaleY
+    };
+  } catch (e) {
+    return null; // canvas ke-taint (CORS) -- tidak bisa dianalisis
+  }
+}
+
 function buildSquareFaviconDataUrl(url, size = 128, paddingRatio = 0.16) {
   return new Promise((resolve) => {
     if (!url) { resolve(null); return; }
@@ -85,17 +147,37 @@ function buildSquareFaviconDataUrl(url, size = 128, paddingRatio = 0.16) {
         // jadi tidak ada kotak putih/hitam aneh di belakang logo.
         const pad = size * paddingRatio;
         const maxDim = size - pad * 2;
-        // Skala logo supaya sisi terpanjangnya pas di maxDim, lalu di-
-        // tengahkan -- ini yang memastikan logo apapun proporsinya
+
+        // Auto-crop: buang ruang kosong bawaan di sekeliling logo (kalau
+        // ada) SEBELUM logo diperkecil+dipadding -- supaya tidak terjadi
+        // dobel padding yang bikin logo kelihatan kekecilan. sx/sy/sw/sh
+        // di bawah ini menentukan bagian mana dari gambar ASLI yang
+        // dipakai; default-nya gambar utuh kalau deteksi gagal/tidak perlu.
+        let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
+        const bounds = detectContentBounds(img);
+        if (bounds && bounds.width > 0 && bounds.height > 0) {
+          const boundArea = bounds.width * bounds.height;
+          const fullArea = img.naturalWidth * img.naturalHeight;
+          // Cuma dipakai kalau memang signifikan lebih kecil dari gambar
+          // utuh (menandakan memang ada ruang kosong bawaan yang perlu
+          // dibuang) -- kalau hasil deteksi hampir seluas gambar utuh,
+          // abaikan saja (anggap tidak ada yang perlu di-crop).
+          if (boundArea < fullArea * 0.92) {
+            sx = bounds.x; sy = bounds.y; sw = bounds.width; sh = bounds.height;
+          }
+        }
+
+        // Skala hasil crop supaya sisi terpanjangnya pas di maxDim, lalu
+        // di-tengahkan -- ini yang memastikan logo apapun proporsinya
         // (persegi, potrait, landscape) selalu berakhir dengan jarak
         // aman yang sama ke semua tepi kanvas.
-        const scale = Math.min(maxDim / img.naturalWidth, maxDim / img.naturalHeight);
-        const drawW = img.naturalWidth * scale;
-        const drawH = img.naturalHeight * scale;
+        const scale = Math.min(maxDim / sw, maxDim / sh);
+        const drawW = sw * scale;
+        const drawH = sh * scale;
         const dx = (size - drawW) / 2;
         const dy = (size - drawH) / 2;
         ctx.clearRect(0, 0, size, size);
-        ctx.drawImage(img, dx, dy, drawW, drawH);
+        ctx.drawImage(img, sx, sy, sw, sh, dx, dy, drawW, drawH);
         resolve(canvas.toDataURL("image/png"));
       } catch (e) {
         // Canvas ke-taint (CORS ditolak server gambar) atau error lain --
