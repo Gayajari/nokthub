@@ -329,6 +329,14 @@ body.comment-focus-active #comments-heading{
      padahal tidak ada kode kita yang menyuruh itu. Tanpa scroll-snap,
      geser jadi murni bebas & polos, dan posisi awal (scrollLeft:0) yang
      kita paksa lewat JS benar-benar dipatuhi. */
+  /* FIX tambahan: matikan "scroll anchoring" bawaan browser -- fitur ini
+     otomatis menggeser posisi scroll untuk "mengkompensasi" perubahan
+     ukuran konten (mis. kalau chip ditambahkan belakangan setelah render
+     pertama). Ini penyebab paling mungkin dari baris kategori yang terus
+     "tertarik ke kiri" sendiri. Baris ini mematikan koreksi otomatis itu
+     sepenuhnya, dikombinasikan dengan categories.js yang sekarang
+     merender semua chip sekaligus (bukan bertahap). */
+  overflow-anchor:none;
 }
 .catnav-row::-webkit-scrollbar{display:none}
 .catnav-row{scrollbar-width:none}
