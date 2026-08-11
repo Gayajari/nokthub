@@ -65,13 +65,15 @@
       <div id="search-results" class="search-results"></div>
     </div>
 
-    <select id="category-select" class="category-select">
-      <option value="">Semua Kategori</option>
-    </select>
-
     <button id="login-btn" class="btn">Login</button>
     <div id="profile-btn" class="profile-btn nav-btn" style="display:none;cursor:pointer"></div>
   </div>
+
+  <!-- Baris kategori: chip scroll-horizontal, dirender otomatis oleh
+       js/categories.js dari koleksi Firestore "categories". Diletakkan
+       sebagai baris terpisah (bukan sejajar search) supaya tidak sesak
+       di layar sempit / mobile. -->
+  <div id="category-row" class="cat-row"></div>
 </header>
 
 <section class="hero">
