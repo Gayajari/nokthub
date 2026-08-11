@@ -3,8 +3,10 @@
 // ============================================================
 import {
   auth, db, onAuthStateChanged, collection, doc, getDoc, getDocs, addDoc,
-  setDoc, updateDoc, deleteDoc, query, where, orderBy, serverTimestamp
+  setDoc, updateDoc, deleteDoc, query, where, orderBy, serverTimestamp,
+  deleteField
 } from "./firebase-config.js";
+import { resolveCategoryIcon, iconSvg, allIconIds, ICON_LIBRARY } from "./icons.js";
 
 function slugify(str) {
   return str.toLowerCase().trim()
@@ -173,7 +175,6 @@ function initThumbUpload() {
   const status = document.getElementById("thumb-upload-status");
   if (!urlInput) return;
 
-  // Saat admin ketik/tempel link manual -> normalisasi dulu, baru preview
   urlInput.addEventListener("change", () => {
     const normalized = normalizeThumbLink(urlInput.value.trim());
     urlInput.value = normalized;
@@ -196,7 +197,7 @@ function initThumbUpload() {
         endpoint: s.thumbEndpoint, apiKey: s.thumbApiKey, urlField: s.thumbField,
         fileFieldName: "image", authType: "query", fileName: "thumbnail.jpg"
       });
-      urlInput.value = url; // hasil upload sudah pasti direct link, tidak perlu dinormalisasi
+      urlInput.value = url;
       preview.innerHTML = `<img src="${url}" alt="preview thumbnail">`;
       status.textContent = "Berhasil diupload.";
     } catch (err) {
@@ -395,6 +396,10 @@ function initTabs() {
       ["upload", "videos", "settings", "pages"].forEach(t => {
         document.getElementById(`tab-${t}`).style.display = t === link.dataset.tab ? "block" : "none";
       });
+      // Kelola Ikon Kategori cukup dimuat sekali saat tab Pengaturan dibuka
+      // (bukan setiap render), supaya tidak nge-fetch Firestore berulang
+      // tiap ganti-ganti tab kalau isinya belum berubah.
+      if (link.dataset.tab === "settings") loadCategoryIconManager();
     });
   });
 }
@@ -521,6 +526,68 @@ document.addEventListener("click", async (e) => {
 });
 
 // ============================================================
+// KELOLA IKON KATEGORI (manual, opsional)
+// ============================================================
+async function loadCategoryIconManager() {
+  const wrap = document.getElementById("category-icon-manager");
+  if (!wrap) return;
+
+  wrap.innerHTML = `<p style="color:var(--text-muted);font-size:.8rem">Memuat kategori...</p>`;
+
+  const snap = await getDocs(query(collection(db, "categories"), orderBy("name")));
+  const categories = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  if (!categories.length) {
+    wrap.innerHTML = `<p style="color:var(--text-muted);font-size:.82rem">Belum ada kategori. Kategori akan muncul otomatis setelah kamu upload video pertama.</p>`;
+    return;
+  }
+
+  wrap.innerHTML = categories.map(cat => {
+    const currentIcon = resolveCategoryIcon(cat);
+    const isManual = !!cat.icon;
+    return `
+      <div class="cat-icon-row" data-slug="${cat.slug}" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+        <span class="cat-icon-preview" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text)">${iconSvg(currentIcon)}</span>
+        <span style="flex:1;font-size:.88rem">${cat.name}</span>
+        <select class="cat-icon-select" data-slug="${cat.slug}" data-name="${cat.name}" style="width:auto;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:6px;font-size:.8rem">
+          <option value="">Otomatis (tebak dari nama)</option>
+          ${allIconIds().map(id => `
+            <option value="${id}" ${isManual && cat.icon === id ? "selected" : ""}>${ICON_LIBRARY[id].label}</option>
+          `).join("")}
+        </select>
+        <span class="cat-icon-status" data-slug="${cat.slug}" style="font-size:.72rem;color:var(--accent);min-width:60px"></span>
+      </div>`;
+  }).join("");
+}
+
+document.addEventListener("change", async (e) => {
+  if (!e.target.classList.contains("cat-icon-select")) return;
+  const select = e.target;
+  const slug = select.dataset.slug;
+  const catName = select.dataset.name;
+  const iconId = select.value; // "" = balik ke otomatis
+  const row = select.closest(".cat-icon-row");
+  const statusEl = row.querySelector(".cat-icon-status");
+  const previewEl = row.querySelector(".cat-icon-preview");
+
+  try {
+    if (iconId) {
+      await updateDoc(doc(db, "categories", slug), { icon: iconId });
+    } else {
+      await updateDoc(doc(db, "categories", slug), { icon: deleteField() });
+    }
+    const resolved = resolveCategoryIcon({ slug, name: catName, icon: iconId || undefined });
+    if (previewEl) previewEl.innerHTML = iconSvg(resolved);
+    if (statusEl) {
+      statusEl.textContent = "Tersimpan ✓";
+      setTimeout(() => { statusEl.textContent = ""; }, 1500);
+    }
+  } catch (err) {
+    if (statusEl) statusEl.textContent = "Gagal: " + err.message;
+  }
+});
+
+// ============================================================
 // KELOLA HALAMAN STATIS (Kontak, Privacy Policy, Terms, DMCA, Disclaimer)
 // ============================================================
 const STATIC_PAGE_DEFAULT_TITLES = {
@@ -577,6 +644,10 @@ async function upsertCategory(name) {
   if (!snap.exists()) {
     await setDoc(ref, { name, slug, videoCount: 1 });
   } else {
+    // FIX: sebelumnya updateDoc hanya kirim videoCount -- ini aman,
+    // updateDoc TIDAK menghapus field lain yang sudah ada (termasuk
+    // `icon` manual yang mungkin sudah dipilih admin), jadi ikon manual
+    // tetap tersimpan walau video baru terus ditambahkan ke kategori ini.
     await updateDoc(ref, { videoCount: (snap.data().videoCount || 0) + 1 });
   }
 }
