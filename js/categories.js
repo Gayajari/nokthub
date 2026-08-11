@@ -40,9 +40,31 @@ async function loadCategoryChips() {
     console.warn("Gagal memuat kategori:", e);
   }
 
-  // Cuma scroll-ke-tengah kalau yang aktif itu kategori asli (bukan
-  // "Semua" yang sticky) -- lihat penjelasan lengkap di riwayat chat.
-  if (activeSlug) {
+  applyScrollPosition(row, activeSlug);
+}
+
+// ---------- FIX: browser "mengingat" posisi scroll baris kategori ----------
+// Beberapa browser (terutama Chrome) otomatis me-restore posisi scroll
+// elemen yang bisa di-scroll (bukan cuma scroll halaman utama) dari
+// kunjungan sebelumnya -- termasuk kalau halamannya dibuka ulang lewat
+// cache/back-forward (bfcache), atau bahkan kadang di reload biasa.
+// Efeknya: walau kode kita TIDAK pernah menyuruh geser baris kategori,
+// baris itu bisa muncul dalam kondisi sudah tergeser dari kunjungan
+// sebelumnya -- membuat chip "Semua" yang sticky kelihatan menutupi
+// sebagian chip lain secara aneh sejak awal halaman dibuka.
+//
+// Solusi: begitu tahu "Semua" yang harusnya aktif (activeSlug === null),
+// PAKSA posisi scroll balik ke 0 secara eksplisit -- jangan cuma
+// "membiarkan" default browser, karena defaultnya kadang bukan 0.
+function applyScrollPosition(row, activeSlug) {
+  if (activeSlug === null) {
+    // "Semua" aktif -> selalu mulai dari posisi paling awal (0), apapun
+    // yang coba di-restore browser. requestAnimationFrame dipakai supaya
+    // ini dipaksakan SETELAH browser selesai mencoba restore-nya sendiri
+    // (yang kadang terjadi tepat setelah render/paint pertama).
+    row.scrollLeft = 0;
+    requestAnimationFrame(() => { row.scrollLeft = 0; });
+  } else {
     const activeChip = row.querySelector(".catnav-chip.active");
     if (activeChip) {
       activeChip.scrollIntoView({ behavior: "instant", inline: "center", block: "nearest" });
@@ -55,3 +77,14 @@ function escapeHtml(s = "") {
 }
 
 document.addEventListener("DOMContentLoaded", loadCategoryChips);
+
+// FIX tambahan: saat halaman dibuka lagi lewat tombol back/forward
+// browser, DOMContentLoaded TIDAK selalu jalan ulang (halaman diambil
+// dari bfcache) -- padahal posisi scroll baris kategori bisa saja masih
+// "nyangkut" dari sebelum user pindah halaman. "pageshow" jalan di kedua
+// kasus (baik load normal maupun restore dari bfcache), jadi dipakai
+// sebagai jaring pengaman tambahan supaya baris kategori selalu benar
+// posisinya, dari jalur manapun halaman ini dibuka.
+window.addEventListener("pageshow", (e) => {
+  if (e.persisted) loadCategoryChips();
+});
