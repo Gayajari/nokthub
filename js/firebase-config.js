@@ -17,7 +17,7 @@ import {
 import {
   getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc,
   deleteDoc, query, where, orderBy, limit, startAfter, onSnapshot,
-  increment, serverTimestamp, Timestamp
+  increment, serverTimestamp, Timestamp, deleteField
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -42,7 +42,7 @@ export {
   setPersistence, browserLocalPersistence, browserSessionPersistence,
   collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc,
   query, where, orderBy, limit, startAfter, onSnapshot,
-  increment, serverTimestamp, Timestamp
+  increment, serverTimestamp, Timestamp, deleteField
 };
 
 // ============================================================
@@ -55,7 +55,11 @@ export {
 //                    uploadedAt, adminName, seoTitle, seoDescription,
 //                    metaKeywords, viewCount, likeCount, shareCount,
 //                    searchTagCount, popularScore }
-// categories       { name, slug, videoCount }
+// categories       { name, slug, videoCount, icon? }
+//                    -- `icon` opsional: id ikon manual dari js/icons.js,
+//                    diisi lewat panel admin (tab Pengaturan). Kalau tidak
+//                    ada, ikon ditebak otomatis (lihat resolveCategoryIcon
+//                    di js/icons.js).
 // tags             { name, slug, searchCount, videoCount }
 // comments         { videoId, uid, userName, userPhoto, text, parentId,
 //                    likeCount, dislikeCount, createdAt }
