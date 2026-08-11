@@ -1197,7 +1197,7 @@ function renderCommentPreview(comment, animate) {
       <div class="comment-preview-name">${escapeHtml(comment.userName || 'User')}
         <span class="comment-preview-date">· ${formatCommentDate(comment.createdAt)}</span>
       </div>
-      <div class="comment-preview-text">"${escapeHtml(comment.text)}"</div>
+      <div class="comment-preview-text">${escapeHtml(comment.text)}</div>
     </div>`;
   if (animate === false) {
     previewEl.innerHTML = html;
