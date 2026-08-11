@@ -337,7 +337,7 @@ body.comment-focus-active #comments-heading{
   transition:background .18s ease, border-color .18s ease, color .18s ease, transform .12s ease;
 }
 .catnav-chip svg{
-  width:15px;height:15px;flex-shrink:0;
+  width:13px;height:13px;flex-shrink:0;
   transition:transform .25s cubic-bezier(.34,1.56,.64,1), stroke .18s ease;
 }
 .catnav-chip:active{transform:scale(.94)}
@@ -350,3 +350,16 @@ body.comment-focus-active #comments-heading{
 
 .catnav-chip.active[data-cat="all"] svg{animation:nokt-catnav-spin 3s linear infinite}
 @keyframes nokt-catnav-spin{to{transform:rotate(352deg)}}
+
+/* Chip "Semua" dibuat sticky (menempel statis di kiri) -- chip kategori
+   lain (Bola, Cantik, Play vid, dst) akan lewat/masuk DI BAWAHNYA saat
+   baris digeser ke kiri, bukan ikut geser bersamaan. TIDAK ada perubahan
+   warna sama sekali di sini -- chip ini tetap pakai warna default yang
+   sama persis dengan .catnav-chip / .catnav-chip.active biasa (var(--surface)
+   saat non-aktif, var(--accent) saat aktif), cukup warna itu sudah solid/
+   opaque jadi otomatis "menutupi" chip lain yang lewat di baliknya. */
+.catnav-chip[data-cat="all"]{
+  position:sticky;
+  left:0;
+  z-index:5;
+}
