@@ -132,7 +132,15 @@ function detectContentBounds(img) {
   }
 }
 
-function buildSquareFaviconDataUrl(url, size = 128, paddingRatio = 0.16) {
+// PENYEMPURNAAN: paddingRatio dikecilkan dari 0.16 jadi 0.06 -- 16% itu
+// margin yang KEGEDEAN buat ukuran favicon kecil (16-32px), bikin logo
+// keliatan kecil di tengah walau auto-crop di atas sudah jalan. 0.06
+// (6% tiap sisi, ~12% total) bikin logo isi HAMPIR PENUH kotaknya --
+// lebih sebanding dengan favicon situs lain yang biasanya juga isi
+// penuh sampai dekat tepi, tapi tetap ada sedikit jarak biar tidak
+// benar-benar mepet 0px (masih aman dari terpotong platform yang ikut
+// membulatkan sudut kotak).
+function buildSquareFaviconDataUrl(url, size = 128, paddingRatio = 0.06) {
   return new Promise((resolve) => {
     if (!url) { resolve(null); return; }
     const img = new Image();
@@ -162,7 +170,7 @@ function buildSquareFaviconDataUrl(url, size = 128, paddingRatio = 0.16) {
           // utuh (menandakan memang ada ruang kosong bawaan yang perlu
           // dibuang) -- kalau hasil deteksi hampir seluas gambar utuh,
           // abaikan saja (anggap tidak ada yang perlu di-crop).
-          if (boundArea < fullArea * 0.92) {
+          if (boundArea < fullArea * 0.97) {
             sx = bounds.x; sy = bounds.y; sw = bounds.width; sh = bounds.height;
           }
         }
