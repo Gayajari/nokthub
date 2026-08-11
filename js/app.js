@@ -135,7 +135,11 @@ function detectContentBounds(img) {
 // PENYEMPURNAAN: dikecilkan lagi dari 0.06 jadi 0.03 -- mendekati
 // proporsi favicon situs pada umumnya, yang biasanya isi hampir penuh
 // kotaknya dengan jarak tepi yang sangat tipis (bukan margin lebar).
-function buildSquareFaviconDataUrl(url, size = 128, paddingRatio = 0.03) {
+// PENYEMPURNAAN: dikecilkan lagi jadi 0.01 -- ini sudah mendekati batas
+// minimum aman (nyaris mepet tanpa jarak sama sekali). Kalau setelah ini
+// masih terasa kurang penuh, penyebabnya BUKAN lagi padding kode -- lihat
+// catatan di bawah applySiteSettings soal batas deteksi auto-crop.
+function buildSquareFaviconDataUrl(url, size = 128, paddingRatio = 0.01) {
   return new Promise((resolve) => {
     if (!url) { resolve(null); return; }
     const img = new Image();
