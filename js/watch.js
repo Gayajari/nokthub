@@ -8,6 +8,7 @@ import {
 } from "./firebase-config.js";
 import { renderPlayer, trackResumePosition } from "./player.js";
 import { escapeHtml, renderVideoCard, computePopularScore, buildThumbChain } from "./app.js";
+import { getAvatarForUid, DEFAULT_AVATARS } from "./auth.js";
 
 // ---------- FIX: header komentar "macet"/ketutup navbar ----------
 function updateSiteHeaderHeightVar() {
@@ -387,13 +388,6 @@ let allComments = [];
 let userReactions = {};
 let commentSortOrder = "desc";
 let commentDisplayLimit = 1;
-// PENYEMPURNAAN: pola bertahap untuk "Lihat komentar lainnya" --
-//   Tahap 0 (default): 1 komentar tampil.
-//   Tahap 1 (klik pertama): naik ke COMMENT_FIRST_REVEAL (3) komentar,
-//     bisa discroll di dalam #comment-list (sudah scrollable bawaan).
-//   Tahap 2 dst (klik lagi, kalau masih ada sisa): nambah
-//     COMMENT_STEP (5) komentar tiap klik -- bertahap, BUKAN langsung
-//     semua sekaligus. Lihat listener klik di bawah.
 const COMMENT_FIRST_REVEAL = 3;
 const COMMENT_STEP = 5;
 let unsubscribeComments = null;
@@ -454,9 +448,6 @@ function renderCommentsList() {
 
 document.getElementById("comment-list").addEventListener("click", (e) => {
   if (e.target.id === "btn-load-more-comments") {
-    // Tahap 1 (klik pertama): dari default 1 -> naik ke 3
-    // (COMMENT_FIRST_REVEAL). Tahap 2 dst (klik lagi, kalau masih ada
-    // sisa): nambah COMMENT_STEP (5) komentar tiap klik -- bertahap.
     commentDisplayLimit = commentDisplayLimit < COMMENT_FIRST_REVEAL
       ? COMMENT_FIRST_REVEAL
       : commentDisplayLimit + COMMENT_STEP;
@@ -467,17 +458,6 @@ document.getElementById("comment-list").addEventListener("click", (e) => {
 document.querySelectorAll("#sort-newest, #sort-oldest").forEach(btn => {
   btn.addEventListener("click", () => {
     commentSortOrder = btn.dataset.sort;
-    // FIX: sebelumnya commentDisplayLimit direset ke 1 di sini -- jadi
-    // kalau user LAGI di tahap "3 komentar" atau lebih (sudah pernah
-    // klik "Lihat komentar lainnya"), ganti Terbaru/Terlama bikin
-    // tampilan seolah "balik ke awal" (cuma 1 komentar lagi). Padahal
-    // yang diinginkan cuma ISI-nya yang diurutkan ulang, TAHAP/jumlah
-    // yang lagi ditampilkan harus tetap sama seperti sebelum diklik.
-    // Sekarang commentDisplayLimit TIDAK disentuh sama sekali di sini
-    // -- listenComments() di bawah cuma ganti urutan datanya
-    // (query orderBy baru), renderCommentsList() lalu tetap pakai
-    // commentDisplayLimit yang sudah ada (3, 8, 13, dst -- sesuai
-    // tahap user saat ini).
     document.querySelectorAll("#sort-newest, #sort-oldest").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     listenComments();
@@ -529,6 +509,16 @@ function renderReplyBox(parentId, mentionName) {
     </div>`;
 }
 
+// ---------- Avatar komentar ----------
+// Kalau komentar itu tidak punya userPhoto (data lama / user daftar via
+// email sebelum fitur avatar default ada), pakai salah satu dari 5 avatar
+// lokal kita, dipilih KONSISTEN berdasarkan uid pemilik komentar. Dipakai
+// baik di daftar komentar utama (renderComment) maupun di preview
+// komentar berputar di header (renderCommentPreview) -- lihat di bawah.
+function commentAvatarUrl(c) {
+  return c.userPhoto || getAvatarForUid(c.uid || "anon");
+}
+
 function renderComment(c, all) {
   const replies = all.filter(r => r.parentId === c.id);
   const isOwner = currentUser && currentUser.uid === c.uid;
@@ -542,7 +532,7 @@ function renderComment(c, all) {
 
   return `
     <div class="comment-item" style="max-width:100%">
-      <img src="${c.userPhoto || 'https://via.placeholder.com/34'}" alt="" style="flex-shrink:0">
+      <img src="${commentAvatarUrl(c)}" alt="" style="flex-shrink:0" onerror="this.onerror=null;this.src='${DEFAULT_AVATARS[0]}'">
       <div class="comment-body" style="flex:1;min-width:0">
         <div style="font-size:.85rem;font-weight:600;${wrapStyle}">${escapeHtml(c.userName || 'User')}
           <span style="font-weight:400;color:var(--text-muted);font-size:.72rem">· ${formatCommentDate(c.createdAt)}</span>
@@ -598,7 +588,7 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
     await addDoc(collection(db, "comments"), {
       videoId, uid: currentUser.uid,
       userName: currentUser.displayName || "User",
-      userPhoto: currentUser.photoURL || "",
+      userPhoto: currentUser.photoURL || getAvatarForUid(currentUser.uid),
       text, parentId: null, likeCount: 0, dislikeCount: 0,
       createdAt: serverTimestamp()
     });
@@ -620,13 +610,6 @@ document.getElementById("btn-comment").addEventListener("click", async () => {
 });
 
 document.getElementById("comment-list").addEventListener("click", async (e) => {
-  // --- Ketuk RUANG KOSONG di baris komentar -> tutup section komentar ---
-  // Dicek PALING AWAL, sebelum aksi lain: kalau yang diklik PERSIS elemen
-  // ".comment-body" itu sendiri (bukan salah satu anak di dalamnya seperti
-  // teks/tombol Balas/Hapus/reaksi -- itu semua elemen terpisah, jadi
-  // e.target-nya beda), berarti user nge-tap area kosong di sebelah kanan
-  // baris komentar. Itu sinyal "sudah selesai baca, mau nutup" -- jadi
-  // langsung nutup komentar, sama seperti nge-klik tombol "Tutup Komentar".
   if (e.target.classList.contains("comment-body") && closeCommentsSection) {
     closeCommentsSection();
     return;
@@ -682,7 +665,7 @@ document.getElementById("comment-list").addEventListener("click", async (e) => {
       await addDoc(collection(db, "comments"), {
         videoId, uid: currentUser.uid,
         userName: currentUser.displayName || "User",
-        userPhoto: currentUser.photoURL || "",
+        userPhoto: currentUser.photoURL || getAvatarForUid(currentUser.uid),
         text, parentId, likeCount: 0, dislikeCount: 0,
         createdAt: serverTimestamp()
       });
@@ -763,19 +746,6 @@ function setupCommentFocusZoom() {
   let isActive = false;
   let placeholder = null;
   let rafId = null;
-  // FIX (penyebab video "kedorong ke atas" tiap kirim komentar): sebelumnya
-  // di sini disimpan cachedRevealHeight (tinggi #video-meta + #comments-heading)
-  // yang lalu DITAMBAHKAN ke posisi scroll lama saat kolom komentar ditutup.
-  // Itu itungan tambahan yang gampang meleset kalau tinggi elemen berubah
-  // dikit aja antara activate() dan deactivate() -- hasilnya scroll
-  // overshoot, video kelihatan "dipaksa naik/nongol" padahal seharusnya diem.
-  //
-  // Sekarang TIDAK ada itungan tinggi sama sekali. Yang disimpan cuma
-  // posisi scroll PERSIS sebelum kolom komentar difokuskan (scrollYAtActivate),
-  // dan itu yang dibalikin PERSIS apa adanya -- tidak ditambah/dikurangi
-  // apapun. Jadi halaman dijamin balik ke posisi yang SAMA PERSIS seperti
-  // sebelum diklik, terlepas dari elemen apapun yang berubah tinggi selama
-  // kolom komentar aktif.
   let scrollYAtActivate = 0;
 
   function positionBar() {
@@ -800,9 +770,6 @@ function setupCommentFocusZoom() {
   function activate() {
     if (input.disabled || isActive) return;
 
-    // Simpan posisi scroll PERSIS di sini, sebelum satu pun style/class
-    // diubah -- inilah "titik nol" yang akan dikembalikan lagi di
-    // deactivate(), apa adanya, tanpa dihitung ulang dari tinggi elemen.
     scrollYAtActivate = window.scrollY;
 
     const rect = box.getBoundingClientRect();
@@ -852,20 +819,6 @@ function setupCommentFocusZoom() {
       window.scrollTo(0, scrollYAtActivate);
     };
 
-    // FIX (debounce): sebelumnya kompensasi scroll langsung dijalankan di
-    // event "resize" visualViewport yang PERTAMA muncul. Masalahnya,
-    // penutupan keyboard sering memicu beberapa kali resize berturut-turut
-    // (animasinya bertahap) -- kalau kompensasi dijalankan di resize
-    // pertama (yang masih di tengah animasi/belum stabil), browser masih
-    // lanjut menggeser sendiri sesudahnya -> halaman kelihatan "geser
-    // berkali-kali" tiap kirim komentar.
-    //
-    // Sekarang pakai pola debounce: setiap ada resize baru, timer direset.
-    // Kompensasi baru dijalankan setelah TIDAK ada resize baru selama
-    // 120ms berturut-turut -- menandakan visualViewport benar-benar sudah
-    // diam/stabil. Fallback 450ms tetap dijaga untuk kondisi
-    // visualViewport tidak pernah resize sama sekali (desktop / keyboard
-    // tidak muncul).
     if (window.visualViewport) {
       let settleTimer = null;
       let applied = false;
@@ -921,23 +874,6 @@ commentZoomController = setupCommentFocusZoom();
 
 const COMMENT_TEXTAREA_MIN_H = 38;
 const COMMENT_TEXTAREA_MAX_H = 100;
-// PENYEMPURNAAN: dikecilkan dari "min(50vh, 420px)" jadi
-// "min(32vh, 260px)" -- supaya kotak komentar langsung kerasa jadi
-// "kotak scroll" mulai dari tahap awal (3 komentar), bukan cuma
-// kelihatan scrollable setelah komentarnya banyak.
-// PENYEMPURNAAN: dikecilkan lagi jadi "min(22vh, 190px)" -- kira-kira
-// setinggi 2 komentar biasa. Tujuannya: begitu tahap "3 komentar"
-// (COMMENT_FIRST_REVEAL) muncul, isinya SUDAH PASTI melebihi tinggi
-// kotak ini, jadi scrollbar langsung aktif seketika -- tidak perlu
-// nunggu klik "Lihat komentar lainnya" yang kedua kalinya, dan tidak
-// tergantung panjang/pendeknya teks komentar orang.
-// CATATAN: scrollbar itu sendiri cuma aturan browser -- browser HANYA
-// menampilkannya kalau konten di dalam box lebih tinggi dari box-nya.
-// Nggak ada cara "paksa aktif" tanpa membuat kondisi itu benar --
-// makanya box-nya sengaja dibuat lebih pendek dari isi 3 komentar,
-// bukan cuma dikasih properti overflow saja (overflow-y:auto sudah
-// terpasang sejak awal, tapi baru "kelihatan" kalau kondisi di atas
-// terpenuhi).
 const COMMENT_LIST_MAX_H = "min(22vh, 190px)";
 
 function resetTextareaHeight(el) {
@@ -970,13 +906,6 @@ function autoGrowTextarea(el) {
   if (list) {
     list.style.setProperty("max-height", COMMENT_LIST_MAX_H, "important");
     list.style.setProperty("overflow-y", "auto", "important");
-    // FIX (permintaan: "support scrolling global"): sebelumnya
-    // overscroll-behavior:contain dipasang supaya geseran di dalam
-    // daftar komentar TIDAK lanjut/"bocor" ke scroll halaman utama saat
-    // sudah mentok atas/bawah. Sekarang property itu DIHAPUS -- begitu
-    // geseran di dalam kotak komentar mentok (baik dari komentar
-    // maupun ruang kosong di sampingnya), geserannya lanjut otomatis ke
-    // scroll halaman, bukan berhenti/kejebak di dalam kotak kecil ini.
     list.style.setProperty("-webkit-overflow-scrolling", "touch", "important");
   }
 })();
@@ -1167,10 +1096,6 @@ function getNewestTopLevelComment(topLevel) {
 let commentSectionExpanded = false;
 let lastKnownCommentCount = null;
 let syncCommentExpandHeight = null;
-// Diisi di dalam setupCollapsibleCommentsSection() -- dipanggil dari
-// listener klik #comment-list (di luar IIFE itu) supaya nge-tap ruang
-// kosong di baris komentar (class "comment-body") bisa langsung nutup
-// section komentar, bukan cuma lewat tombol "Tutup Komentar"/header.
 let closeCommentsSection = null;
 
 let previewCandidates = [];
@@ -1185,14 +1110,9 @@ function buildPreviewCandidates(topLevel) {
 function renderCommentPreview(comment, animate) {
   const previewEl = document.getElementById("comment-preview");
   if (!previewEl || !comment) return;
-  // PENYEMPURNAAN: dulu cuma teks komentar + nama di bawahnya (tanpa
-  // foto profil). Sekarang layout-nya foto profil di kiri (mirip baris
-  // komentar asli di daftar), nama+tanggal di baris atas, teks komentar
-  // di baris bawahnya -- lebih jelas "siapa yang komen" pas rotation
-  // ganti tiap beberapa detik.
-  const photo = comment.userPhoto || 'https://via.placeholder.com/28';
+  const photo = commentAvatarUrl(comment);
   const html = `
-    <img class="comment-preview-avatar" src="${photo}" alt="">
+    <img class="comment-preview-avatar" src="${photo}" alt="" onerror="this.onerror=null;this.src='${DEFAULT_AVATARS[0]}'">
     <div class="comment-preview-body">
       <div class="comment-preview-name">${escapeHtml(comment.userName || 'User')}
         <span class="comment-preview-date">· ${formatCommentDate(comment.createdAt)}</span>
@@ -1333,13 +1253,6 @@ function updateCommentToggleHeader(topLevel) {
   list.parentNode.insertBefore(contentWrap, box || sortRow || list);
   [box, sortRow, list].forEach(el => { if (el) contentWrap.appendChild(el); });
 
-  // ---- Tombol "Tutup Komentar" di PALING BAWAH daftar ----
-  // Toggle utama (headerWrap) ada di paling atas -- kalau user sudah
-  // scroll jauh ke bawah buat baca komentar publik, mereka harus scroll
-  // balik ke atas dulu buat nutup. Tombol ini kasih jalan pintas: dari
-  // manapun posisi scroll mereka di dalam daftar, 1x klik langsung
-  // menutup + halaman digeser halus balik ke section komentar (bukan ke
-  // atas video/halaman), biar tidak kelihatan "nyasar" tiba-tiba.
   const closeBtn = document.createElement("button");
   closeBtn.id = "btn-close-comments";
   closeBtn.className = "share-btn";
@@ -1348,14 +1261,8 @@ function updateCommentToggleHeader(topLevel) {
   closeBtn.style.cssText = "width:100%;margin-top:12px";
   contentWrap.appendChild(closeBtn);
 
-  // Fungsi tutup dipakai ulang oleh: tombol ini, DAN listener klik
-  // "ruang kosong" (.comment-body) di #comment-list -- lihat variabel
-  // global closeCommentsSection yang di-assign di sini.
   function doCloseComments() {
     applyState(false, true);
-    // Scroll halus balik ke posisi heading "Komentar", bukan ke atas
-    // halaman -- supaya user tetap berada di konteks yang sama (dekat
-    // video), cuma daftar komentarnya yang tertutup.
     headerWrap.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   closeCommentsSection = doCloseComments;
