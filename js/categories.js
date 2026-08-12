@@ -7,6 +7,8 @@
 import { db, collection, getDocs, orderBy, query } from "./firebase-config.js";
 import { resolveCategoryIcon, iconSvg } from "./icons.js";
 
+const SCROLL_KEY = "nokt_catnav_scroll";
+
 async function loadCategoryChips() {
   const row = document.getElementById("category-row");
   if (!row) return;
@@ -16,20 +18,8 @@ async function loadCategoryChips() {
     ? (params.get("c") || "")
     : null;
 
-  // ---------- FIX UTAMA: bangun SEMUA chip dulu, baru render 1x ----------
-  // Sebelumnya: chip "Semua" di-render duluan lewat innerHTML, baru chip
-  // kategori lain ditambahkan SATU-SATU belakangan lewat appendChild
-  // setelah data Firestore selesai diambil. Itu artinya ukuran baris
-  // kategori berubah beberapa kali SETELAH halaman sempat digambar --
-  // dan browser (terutama Chrome) punya fitur otomatis bernama "scroll
-  // anchoring" yang menggeser-geser posisi scroll untuk "mengkompensasi"
-  // perubahan ukuran konten seperti itu. Ini kemungkinan besar biang
-  // kerok tarikan-ke-kiri yang terus terjadi.
-  //
-  // Sekarang: kumpulkan HTML seluruh chip (Semua + semua kategori) dulu
-  // di memori, baru pasang ke DOM SEKALI SAJA lewat satu innerHTML. Baris
-  // kategori jadi langsung "jadi" dalam ukuran final sejak awal render --
-  // tidak ada perubahan ukuran susulan yang bisa memicu scroll anchoring.
+  // Bangun semua chip dulu, render 1x (hindari scroll-anchoring browser
+  // -- lihat riwayat chat untuk penjelasan lengkap).
   const chipsHtml = [
     `<a href="index.html" class="catnav-chip${activeSlug === null ? " active" : ""}" data-cat="all">
       ${iconSvg("globe")} Semua
@@ -54,10 +44,56 @@ async function loadCategoryChips() {
 
   row.innerHTML = chipsHtml.join("");
 
-  applyScrollPosition(row, activeSlug);
+  // ---------- Bedakan: navigasi baru/refresh VS balik lewat back/forward ----------
+  // performance navigation type memberi tahu PERSIS bagaimana halaman ini
+  // sampai dibuka:
+  //   "navigate" -> user klik link / ketik URL / klik chip kategori (baru)
+  //   "reload"   -> user refresh halaman
+  //   "back_forward" -> user pakai tombol back/forward
+  //
+  // Untuk "navigate"/"reload": ini kunjungan BARU ke halaman ini -> pakai
+  // posisi default (Semua di awal / kategori yang dipilih di tengah),
+  // sesuai permintaan "klik Semua = balik ke 3 chip awal".
+  //
+  // Untuk "back_forward": user sedang KEMBALI ke halaman yang tadi dia
+  // tinggalkan -> JANGAN reset apapun. Kalau browser mendukung bfcache,
+  // dia sudah otomatis mengembalikan posisi scroll persis seperti
+  // terakhir kali (tidak perlu kita sentuh sama sekali). Kalau browser
+  // TIDAK memakai bfcache untuk kasus ini (reload penuh terjadi), kita
+  // bantu manual pakai posisi yang sempat disimpan ke sessionStorage
+  // setiap kali user menggeser baris ini.
+  const navType = getNavigationType();
+
+  if (navType === "back_forward") {
+    let saved = null;
+    try { saved = sessionStorage.getItem(SCROLL_KEY); } catch (e) {}
+    if (saved !== null) {
+      row.scrollLeft = parseInt(saved, 10) || 0;
+    } else {
+      applyDefaultScrollPosition(row, activeSlug);
+    }
+  } else {
+    applyDefaultScrollPosition(row, activeSlug);
+  }
+
+  // Simpan posisi scroll tiap kali user menggeser baris ini secara manual
+  // -- supaya kalau nanti dia pencet back, ada data buat direstore kalau
+  // browser tidak pakai bfcache untuk kasus tersebut.
+  row.addEventListener("scroll", () => {
+    try { sessionStorage.setItem(SCROLL_KEY, String(row.scrollLeft)); } catch (e) {}
+  }, { passive: true });
 }
 
-function applyScrollPosition(row, activeSlug) {
+function getNavigationType() {
+  try {
+    const entries = performance.getEntriesByType("navigation");
+    return entries.length ? entries[0].type : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function applyDefaultScrollPosition(row, activeSlug) {
   if (activeSlug === null) {
     row.scrollLeft = 0;
     requestAnimationFrame(() => { row.scrollLeft = 0; });
@@ -75,6 +111,11 @@ function escapeHtml(s = "") {
 
 document.addEventListener("DOMContentLoaded", loadCategoryChips);
 
-window.addEventListener("pageshow", (e) => {
-  if (e.persisted) loadCategoryChips();
-});
+// CATATAN: listener "pageshow" (yang sebelumnya ada di sini untuk jaga-
+// jaga bfcache) SENGAJA DIHAPUS. Itu ternyata biang kerok yang membuat
+// posisi scroll selalu reset walau user pencet tombol back -- karena
+// setiap halaman "dibangunkan" dari bfcache, listener itu ikut memaksa
+// reset ke 0, padahal browser sendiri SUDAH otomatis mengembalikan
+// posisi scroll dengan benar lewat bfcache. Sekarang dibiarkan sepenuhnya
+// ke bfcache untuk kasus itu; logic sessionStorage di atas hanya jadi
+// cadangan untuk browser yang tidak memakai bfcache pada kasus tertentu.
