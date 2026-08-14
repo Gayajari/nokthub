@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DMCA — NOKT HUB</title>
 <link rel="icon" id="site-favicon" href="https://i.ibb.co.com/nss27bKz/20260716-103634.png">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script>
   (function(){
     try {
@@ -50,13 +50,15 @@
         <div id="search-results" class="search-results"></div>
       </div>
 
-      <select id="category-select" class="category-select">
-        <option value="">Semua Kategori</option>
-      </select>
+
 
       <button id="login-btn" class="btn">Login</button>
       <div id="profile-btn" class="profile-btn nav-btn" style="display:none;cursor:pointer"></div>
     </div>
+
+    <!-- Baris kategori: chip scroll-horizontal, dirender otomatis oleh
+         js/categories.js dari koleksi Firestore "categories". -->
+    <div id="category-row" class="catnav-row"></div>
   </header>
 
   <main class="static-page">
