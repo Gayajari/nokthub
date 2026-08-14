@@ -505,6 +505,11 @@ async function loadSettings() {
     if (el && val) el.value = val;
   });
 
+  // Checkbox "Matikan SEMUA ikon kategori" -- terpisah dari map di atas
+  // karena checkbox pakai .checked, bukan .value.
+  const hideIconsEl = document.getElementById("s-hide-category-icons");
+  if (hideIconsEl) hideIconsEl.checked = !!s.hideCategoryIcons;
+
   hostProfilesState = Array.isArray(s.videoHostProfiles) ? s.videoHostProfiles : [];
   activeUploadHostName = s.activeUploadHostName || "";
   renderHostProfilesTable();
@@ -513,15 +518,25 @@ async function loadSettings() {
 document.addEventListener("click", async (e) => {
   if (e.target.id !== "btn-save-settings") return;
   const val = (id) => document.getElementById(id)?.value.trim() || "";
+  const hideCategoryIcons = !!document.getElementById("s-hide-category-icons")?.checked;
   await setDoc(doc(db, "settings", "site"), {
     siteName: val("s-name"), logoUrl: val("s-logo"), favicon: val("s-favicon"),
     themeColor: val("s-theme"), contactEmail: val("s-email"), dmcaEmail: val("s-dmca-email"), gaId: val("s-ga"),
     thumbApiKey: val("s-thumb-api-key"), thumbEndpoint: val("s-thumb-endpoint"), thumbField: val("s-thumb-field"),
     defaultThumbnail: val("s-default-thumb"),
     videoHostProfiles: collectHostProfilesFromUI(),
-    activeUploadHostName: getActiveUploadHostNameFromUI()
+    activeUploadHostName: getActiveUploadHostNameFromUI(),
+    hideCategoryIcons
   }, { merge: true });
   settingsCache = null;
+  // Sinkronkan juga ke cache localStorage supaya categories.js di
+  // halaman lain langsung ikut perubahan tanpa nunggu Firestore round-
+  // trip (sama seperti mekanisme cache nama/warna situs yang sudah ada).
+  try {
+    const cached = JSON.parse(localStorage.getItem("nokt_settings_cache") || "null") || {};
+    cached.hideCategoryIcons = hideCategoryIcons;
+    localStorage.setItem("nokt_settings_cache", JSON.stringify(cached));
+  } catch (e) {}
   alert("Pengaturan tersimpan.");
 });
 
