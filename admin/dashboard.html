@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin — NOKT HUB</title>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../css/style.css">
 <link href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.js"></script>
@@ -145,10 +145,16 @@
         <h3 class="settings-subhead">Ikon Kategori</h3>
         <p style="font-size:.78rem;color:var(--text-muted);margin:0">
           Kategori otomatis dapat ikon dari tebakan nama (mis. "Bola" -> ikon
-          olahraga). Kalau ada yang kurang pas, pilih ikon manual di sini —
-          pilihan ini akan selalu dipakai dan tidak diganti otomatis lagi.
-          Pilih "Otomatis" untuk mengembalikan ke tebakan sistem.
+          olahraga). Kalau ada yang kurang pas, pilih ikon manual per
+          kategori di bawah — pilihan itu akan selalu dipakai dan tidak
+          diganti otomatis lagi. Pilih "Otomatis" untuk kembali ke tebakan
+          sistem, atau "Tanpa Ikon" untuk kategori itu saja tampil teks
+          polos (kategori lain tetap pakai ikon seperti biasa).
         </p>
+        <label style="margin-top:10px;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem;color:var(--text)">
+          <input type="checkbox" id="s-hide-category-icons" style="width:auto">
+          Matikan SEMUA ikon kategori di seluruh situs (tampil teks polos untuk semua kategori, termasuk "Semua")
+        </label>
       </div>
       <div id="category-icon-manager" style="margin-top:12px;max-width:640px"></div>
 
