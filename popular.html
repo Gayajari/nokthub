@@ -22,7 +22,7 @@
     } catch(e) {}
   })();
 </script>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -40,6 +40,10 @@
     <button id="login-btn" class="btn">Login</button>
     <div id="profile-btn" class="profile-btn nav-btn" style="display:none;cursor:pointer"></div>
   </div>
+
+  <!-- Baris kategori: chip scroll-horizontal, dirender otomatis oleh
+       js/categories.js dari koleksi Firestore "categories". -->
+  <div id="category-row" class="catnav-row"></div>
 </header>
 
 <main class="container section">
@@ -66,6 +70,7 @@
 
 <script type="module" src="js/firebase-config.js"></script>
 <script type="module" src="js/auth.js"></script>
+<script type="module" src="js/categories.js"></script>
 <script type="module">
 import { initPopularListing } from "./js/listing.js";
 import "./js/app.js";
