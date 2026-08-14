@@ -5,7 +5,7 @@
 // Ikon per kategori diambil dari js/icons.js.
 // ============================================================
 import { db, collection, getDocs, orderBy, query } from "./firebase-config.js";
-import { resolveCategoryIcon, iconSvg } from "./icons.js";
+import { resolveCategoryIcon, iconSvg, areIconsGloballyHidden } from "./icons.js";
 
 const SCROLL_KEY = "nokt_catnav_scroll";
 
@@ -20,9 +20,14 @@ async function loadCategoryChips() {
 
   // Bangun semua chip dulu, render 1x (hindari scroll-anchoring browser
   // -- lihat riwayat chat untuk penjelasan lengkap).
+  // Saklar global "matikan semua ikon" -- kalau aktif, ikon-nya dilewati
+  // untuk SEMUA chip (termasuk "Semua"), apapun pilihan ikon manual per
+  // kategori. Diatur admin lewat Pengaturan -> "Sembunyikan Ikon Kategori".
+  const hideIcons = areIconsGloballyHidden();
+
   const chipsHtml = [
     `<a href="index.html" class="catnav-chip${activeSlug === null ? " active" : ""}" data-cat="all">
-      ${iconSvg("globe")} Semua
+      ${hideIcons ? "" : iconSvg("globe")} Semua
     </a>`
   ];
 
@@ -33,9 +38,10 @@ async function loadCategoryChips() {
       const cat = d.data();
       const isActive = activeSlug !== null && activeSlug === cat.slug;
       const iconId = resolveCategoryIcon(cat);
+      const iconHtml = hideIcons ? "" : iconSvg(iconId);
       chipsHtml.push(`
         <a href="category.html?c=${encodeURIComponent(cat.slug)}" class="catnav-chip${isActive ? " active" : ""}" data-cat="${cat.slug}">
-          ${iconSvg(iconId)} ${escapeHtml(cat.name)}
+          ${iconHtml} ${escapeHtml(cat.name)}
         </a>`);
     });
   } catch (e) {
