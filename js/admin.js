@@ -119,8 +119,24 @@ async function pollUploadStatus(idOrUrl, statusConfig) {
 // ============================================================
 // CROP/ZOOM THUMBNAIL (Cropper.js via CDN di dashboard.html)
 // ============================================================
+// PENYEMPURNAAN: rasio crop dulu di-hardcode 16:9 saja (cocok untuk
+// thumbnail landscape standar, tapi tidak cocok untuk konten model
+// vertikal/Shorts/Reels). Sekarang admin bisa pilih rasio SEBELUM crop
+// lewat radio button "16:9" / "9:16" di modal -- lihat CROP_RATIOS dan
+// getSelectedRatio() di bawah. Ukuran output canvas juga menyesuaikan
+// otomatis sesuai rasio yang dipilih (bukan selalu 640x360).
 let cropperInstance = null;
 let pendingCropResolve = null;
+
+const CROP_RATIOS = {
+  "16:9": { ratio: 16 / 9, outW: 640, outH: 360 },
+  "9:16": { ratio: 9 / 16, outW: 360, outH: 640 },
+};
+
+function getSelectedRatioKey() {
+  const checked = document.querySelector('input[name="crop-ratio"]:checked');
+  return checked ? checked.value : "16:9";
+}
 
 function openCropModal(file) {
   return new Promise((resolve) => {
@@ -135,7 +151,8 @@ function openCropModal(file) {
       img.src = reader.result;
       modal.style.display = "flex";
       if (cropperInstance) cropperInstance.destroy();
-      cropperInstance = new Cropper(img, { aspectRatio: 16 / 9, viewMode: 1, autoCropArea: 1, background: false });
+      const initialRatio = CROP_RATIOS[getSelectedRatioKey()].ratio;
+      cropperInstance = new Cropper(img, { aspectRatio: initialRatio, viewMode: 1, autoCropArea: 1, background: false });
       pendingCropResolve = resolve;
     };
     reader.readAsDataURL(file);
@@ -146,11 +163,24 @@ function initCropModalButtons() {
   const confirmBtn = document.getElementById("crop-confirm");
   const cancelBtn = document.getElementById("crop-cancel");
   const modal = document.getElementById("crop-modal");
+  const ratioRadios = document.querySelectorAll('input[name="crop-ratio"]');
   if (!confirmBtn || !cancelBtn) return;
+
+  // Ganti rasio kotak crop secara langsung (tanpa perlu tutup/buka ulang
+  // modal atau pilih ulang file) begitu admin klik radio button lain.
+  ratioRadios.forEach(radio => {
+    radio.addEventListener("change", () => {
+      if (!cropperInstance) return;
+      const key = getSelectedRatioKey();
+      cropperInstance.setAspectRatio(CROP_RATIOS[key].ratio);
+    });
+  });
 
   confirmBtn.addEventListener("click", () => {
     if (!cropperInstance) return;
-    cropperInstance.getCroppedCanvas({ width: 640, height: 360 }).toBlob((blob) => {
+    const key = getSelectedRatioKey();
+    const { outW, outH } = CROP_RATIOS[key];
+    cropperInstance.getCroppedCanvas({ width: outW, height: outH }).toBlob((blob) => {
       modal.style.display = "none";
       cropperInstance.destroy();
       cropperInstance = null;
