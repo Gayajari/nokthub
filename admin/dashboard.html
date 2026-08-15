@@ -190,6 +190,22 @@
 
 <div id="crop-modal">
   <div class="crop-box">
+    <!-- ---------- Pilihan rasio crop ---------- -->
+    <!-- Sebelumnya rasio di-hardcode 16:9 saja. Sekarang admin bisa pilih
+         sebelum crop: 16:9 (thumbnail landscape standar) atau 9:16
+         (vertikal, cocok untuk konten model Shorts/Reels). Pilihan ini
+         langsung mengubah kotak crop di preview tanpa perlu buka ulang
+         modal -- lihat listener "change" di admin.js. -->
+    <div class="crop-ratio-picker" style="display:flex;gap:8px;margin-bottom:10px;justify-content:center">
+      <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;cursor:pointer;width:auto">
+        <input type="radio" name="crop-ratio" id="crop-ratio-169" value="16:9" checked style="width:auto">
+        16:9 (Landscape)
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;cursor:pointer;width:auto">
+        <input type="radio" name="crop-ratio" id="crop-ratio-916" value="9:16" style="width:auto">
+        9:16 (Vertikal/Shorts)
+      </label>
+    </div>
     <div class="crop-frame"><img id="crop-image" alt="crop preview"></div>
     <div class="crop-actions">
       <button class="btn" id="crop-cancel" type="button">Batal</button>
