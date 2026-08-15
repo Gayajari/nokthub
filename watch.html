@@ -156,6 +156,7 @@
   </div>
 
   <aside>
+    <div id="ad-sidebar-1" style="margin-bottom:16px;"></div>
     <h2 style="font-family:var(--font-display);font-size:1.1rem;margin-bottom:12px">Video Terkait</h2>
     <div id="related-list" style="display:flex;flex-direction:column;gap:12px"></div>
   </aside>
@@ -197,6 +198,11 @@
   scrollBtn.addEventListener('click', () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
+</script>
+<script type="module">
+  import { mountStickyMobileBanner, renderBanner300x250 } from "./js/ads.js";
+  mountStickyMobileBanner();
+  renderBanner300x250("ad-sidebar-1");
 </script>
 </body>
 </html>

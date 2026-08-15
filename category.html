@@ -73,5 +73,11 @@ import "./js/app.js";
 const params = new URLSearchParams(window.location.search);
 initCategoryListing(params.get('c') || '');
 </script>
+
+<script type="module">
+  import { mountStickyMobileBanner, injectGridAds } from "./js/ads.js";
+  mountStickyMobileBanner();
+  injectGridAds("#listing-grid", 8);
+</script>
 </body>
 </html>
