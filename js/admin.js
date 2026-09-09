@@ -14,39 +14,22 @@ function slugify(str) {
     .replace(/(^-|-$)+/g, "");
 }
 
-// ============================================================
-// NORMALISASI LINK THUMBNAIL MANUAL
-// Banyak link "gambar" yang ditempel orang sebenarnya link halaman
-// viewer (Google Drive, Dropbox, dll), bukan link file gambar langsung.
-// Fungsi ini kenali pola-pola umum dan ubah otomatis jadi link
-// langsung yang bisa dipakai di <img src>. Kalau polanya tidak
-// dikenali (termasuk link ImgBB/CDN yang memang sudah direct),
-// link dipakai apa adanya tanpa diubah.
-// ============================================================
 function normalizeThumbLink(url) {
   if (!url) return url;
   const trimmed = url.trim();
-
-  // Google Drive: /file/d/ID/view , open?id=ID , uc?id=ID -> uc?export=view&id=ID
   const gdrive = trimmed.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/)
               || trimmed.match(/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/)
               || trimmed.match(/drive\.google\.com\/uc\?id=([a-zA-Z0-9_-]+)/);
   if (gdrive) return `https://drive.google.com/uc?export=view&id=${gdrive[1]}`;
-
-  // Dropbox: ...?dl=0 -> ...?raw=1 (biar langsung tampil, bukan halaman preview)
   if (trimmed.includes("dropbox.com")) {
     if (trimmed.includes("dl=0")) return trimmed.replace("dl=0", "raw=1");
     if (!trimmed.includes("raw=1") && !trimmed.includes("dl=1")) {
       return trimmed + (trimmed.includes("?") ? "&raw=1" : "?raw=1");
     }
   }
-
-  return trimmed; // sudah direct (ImgBB, CDN, dst) atau polanya belum dikenali
+  return trimmed;
 }
 
-// ============================================================
-// UPLOAD GENERIK
-// ============================================================
 function getByPath(obj, path) {
   if (!path) return undefined;
   return path.split(".").reduce((o, k) => (o ? o[k] : undefined), obj);
@@ -116,15 +99,6 @@ async function pollUploadStatus(idOrUrl, statusConfig) {
   throw new Error("Video masih diproses, coba cek lagi beberapa saat lagi.");
 }
 
-// ============================================================
-// CROP/ZOOM THUMBNAIL (Cropper.js via CDN di dashboard.html)
-// ============================================================
-// PENYEMPURNAAN: rasio crop dulu di-hardcode 16:9 saja (cocok untuk
-// thumbnail landscape standar, tapi tidak cocok untuk konten model
-// vertikal/Shorts/Reels). Sekarang admin bisa pilih rasio SEBELUM crop
-// lewat radio button "16:9" / "9:16" di modal -- lihat CROP_RATIOS dan
-// getSelectedRatio() di bawah. Ukuran output canvas juga menyesuaikan
-// otomatis sesuai rasio yang dipilih (bukan selalu 640x360).
 let cropperInstance = null;
 let pendingCropResolve = null;
 
@@ -166,8 +140,6 @@ function initCropModalButtons() {
   const ratioRadios = document.querySelectorAll('input[name="crop-ratio"]');
   if (!confirmBtn || !cancelBtn) return;
 
-  // Ganti rasio kotak crop secara langsung (tanpa perlu tutup/buka ulang
-  // modal atau pilih ulang file) begitu admin klik radio button lain.
   ratioRadios.forEach(radio => {
     radio.addEventListener("change", () => {
       if (!cropperInstance) return;
@@ -197,7 +169,6 @@ function initCropModalButtons() {
   });
 }
 
-// ---------- Upload Thumbnail (manual link ATAU upload file + crop) ----------
 function initThumbUpload() {
   const fileInput = document.getElementById("f-thumb-file");
   const urlInput = document.getElementById("f-thumb");
@@ -236,9 +207,6 @@ function initThumbUpload() {
   });
 }
 
-// ============================================================
-// AUTO-THUMBNAIL MULTI-HOST
-// ============================================================
 function extractAutoThumbFromEmbed(embedUrl) {
   if (!embedUrl) return null;
   const yt = embedUrl.match(/youtu\.be\/([a-zA-Z0-9_-]+)/)
@@ -338,7 +306,6 @@ async function autoGenerateThumbnail(embedUrl) {
   return null;
 }
 
-// ---------- Upload Video dari Galeri ----------
 function initVideoUpload() {
   const fileInput = document.getElementById("f-video-file");
   const embedInput = document.getElementById("f-embed");
@@ -399,9 +366,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initCropModalButtons();
 });
 
-// ============================================================
-// AUTH GUARD
-// ============================================================
 onAuthStateChanged(auth, async (user) => {
   if (!user) { window.location.href = "../login.html"; return; }
   const snap = await getDoc(doc(db, "users", user.uid));
@@ -426,17 +390,11 @@ function initTabs() {
       ["upload", "videos", "settings", "pages"].forEach(t => {
         document.getElementById(`tab-${t}`).style.display = t === link.dataset.tab ? "block" : "none";
       });
-      // Kelola Ikon Kategori cukup dimuat sekali saat tab Pengaturan dibuka
-      // (bukan setiap render), supaya tidak nge-fetch Firestore berulang
-      // tiap ganti-ganti tab kalau isinya belum berubah.
       if (link.dataset.tab === "settings") loadCategoryIconManager();
     });
   });
 }
 
-// ============================================================
-// PENGATURAN + Daftar Host Video terpadu
-// ============================================================
 let hostProfilesState = [];
 let activeUploadHostName = "";
 
@@ -448,6 +406,15 @@ function renderHostProfilesTable() {
       <div class="form-grid">
         <div><label>Nama Host</label><input class="hp-name" value="${p.name || ""}" placeholder="mis. Vidara"></div>
         <div><label>Pola Domain (regex)</label><input class="hp-domain" value="${p.domainPattern || ""}" placeholder="mis. vidara\\.to"></div>
+      </div>
+      <div class="form-grid" style="margin-top:8px">
+        <div class="form-grid full">
+          <label>Domain Pengganti (isi HANYA kalau host ini baru saja pindah domain)</label>
+          <input class="hp-replacement" value="${p.replacementDomain || ""}" placeholder="mis. playexa2s.app (kosongkan kalau domain masih sama)">
+          <div class="field-hint" style="font-size:.75rem;color:var(--text-muted);margin-top:4px">
+            Video yang link embed-nya cocok "Pola Domain" di atas akan otomatis dialihkan ke domain ini saat diputar — link asli di database TIDAK diubah.
+          </div>
+        </div>
       </div>
 
       <div class="form-grid full" style="margin-top:10px"><label style="margin-bottom:0;font-weight:600">Untuk Auto-Thumbnail</label></div>
@@ -488,6 +455,7 @@ function collectHostProfilesFromUI() {
   return Array.from(rows).map(row => ({
     name: row.querySelector(".hp-name").value.trim(),
     domainPattern: row.querySelector(".hp-domain").value.trim(),
+    replacementDomain: row.querySelector(".hp-replacement").value.trim(),
     infoEndpoint: row.querySelector(".hp-endpoint").value.trim(),
     apiKey: row.querySelector(".hp-apikey").value.trim(),
     codeParam: row.querySelector(".hp-codeparam").value.trim(),
@@ -535,8 +503,6 @@ async function loadSettings() {
     if (el && val) el.value = val;
   });
 
-  // Checkbox "Matikan SEMUA ikon kategori" -- terpisah dari map di atas
-  // karena checkbox pakai .checked, bukan .value.
   const hideIconsEl = document.getElementById("s-hide-category-icons");
   if (hideIconsEl) hideIconsEl.checked = !!s.hideCategoryIcons;
 
@@ -559,9 +525,6 @@ document.addEventListener("click", async (e) => {
     hideCategoryIcons
   }, { merge: true });
   settingsCache = null;
-  // Sinkronkan juga ke cache localStorage supaya categories.js di
-  // halaman lain langsung ikut perubahan tanpa nunggu Firestore round-
-  // trip (sama seperti mekanisme cache nama/warna situs yang sudah ada).
   try {
     const cached = JSON.parse(localStorage.getItem("nokt_settings_cache") || "null") || {};
     cached.hideCategoryIcons = hideCategoryIcons;
@@ -570,9 +533,6 @@ document.addEventListener("click", async (e) => {
   alert("Pengaturan tersimpan.");
 });
 
-// ============================================================
-// KELOLA IKON KATEGORI (manual, opsional)
-// ============================================================
 async function loadCategoryIconManager() {
   const wrap = document.getElementById("category-icon-manager");
   if (!wrap) return;
@@ -610,7 +570,7 @@ document.addEventListener("change", async (e) => {
   const select = e.target;
   const slug = select.dataset.slug;
   const catName = select.dataset.name;
-  const iconId = select.value; // "" = balik ke otomatis
+  const iconId = select.value;
   const row = select.closest(".cat-icon-row");
   const statusEl = row.querySelector(".cat-icon-status");
   const previewEl = row.querySelector(".cat-icon-preview");
@@ -632,9 +592,6 @@ document.addEventListener("change", async (e) => {
   }
 });
 
-// ============================================================
-// KELOLA HALAMAN STATIS (Kontak, Privacy Policy, Terms, DMCA, Disclaimer)
-// ============================================================
 const STATIC_PAGE_DEFAULT_TITLES = {
   "contact": "Kontak",
   "privacy-policy": "Privacy Policy",
@@ -678,9 +635,6 @@ document.addEventListener("click", async (e) => {
   }
 });
 
-// ============================================================
-// KATEGORI & TAG
-// ============================================================
 async function upsertCategory(name) {
   if (!name) return;
   const slug = slugify(name);
@@ -689,10 +643,6 @@ async function upsertCategory(name) {
   if (!snap.exists()) {
     await setDoc(ref, { name, slug, videoCount: 1 });
   } else {
-    // FIX: sebelumnya updateDoc hanya kirim videoCount -- ini aman,
-    // updateDoc TIDAK menghapus field lain yang sudah ada (termasuk
-    // `icon` manual yang mungkin sudah dipilih admin), jadi ikon manual
-    // tetap tersimpan walau video baru terus ditambahkan ke kategori ini.
     await updateDoc(ref, { videoCount: (snap.data().videoCount || 0) + 1 });
   }
 }
@@ -711,9 +661,6 @@ async function upsertTags(tags) {
   }
 }
 
-// ============================================================
-// FORM VIDEO
-// ============================================================
 let editingVideoId = null;
 
 function fillForm(v) {
