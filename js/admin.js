@@ -14,6 +14,9 @@ function slugify(str) {
     .replace(/(^-|-$)+/g, "");
 }
 
+// ============================================================
+// NORMALISASI LINK THUMBNAIL MANUAL
+// ============================================================
 function normalizeThumbLink(url) {
   if (!url) return url;
   const trimmed = url.trim();
@@ -30,6 +33,9 @@ function normalizeThumbLink(url) {
   return trimmed;
 }
 
+// ============================================================
+// UPLOAD GENERIK
+// ============================================================
 function getByPath(obj, path) {
   if (!path) return undefined;
   return path.split(".").reduce((o, k) => (o ? o[k] : undefined), obj);
@@ -43,22 +49,56 @@ async function getSiteSettings(forceRefresh = false) {
   return settingsCache;
 }
 
-async function uploadToHost(fileOrBlob, config) {
-  const { endpoint, apiKey, urlField, fileFieldName = "file", authType = "query", fileName } = config;
-  if (!endpoint || !apiKey) {
-    throw new Error("Endpoint atau API key host ini belum diisi lengkap di Pengaturan.");
+// ---------- Upload generik ke host, dengan dukungan:
+// - authType: "query" (?key=xxx), "header" (Authorization/AccessKey), atau
+//   "form" (api key dikirim sebagai field form biasa bareng file, dipakai
+//   provider seperti Vidara yang minta field "api_key"/"key" di POST body)
+// - Proses 2 langkah (serverEndpoint diisi): ambil dulu URL upload dinamis
+//   dari serverEndpoint sebelum benar-benar POST file-nya. Kalau kosong,
+//   langsung POST ke `endpoint` seperti biasa (provider 1 langkah).
+// ============================================================
+async function resolveUploadTarget(config) {
+  const { serverEndpoint, serverField, apiKey, endpoint } = config;
+  if (!serverEndpoint) return endpoint; // provider 1 langkah biasa
+
+  const sep = serverEndpoint.includes("?") ? "&" : "?";
+  const res = await fetch(`${serverEndpoint}${sep}api_key=${encodeURIComponent(apiKey)}`);
+  const data = await res.json();
+  const dynamicUrl = getByPath(data, serverField || "result.upload_server");
+  if (!dynamicUrl) {
+    throw new Error("Gagal mengambil upload server. Cek isian 'Field Upload Server di Respons'.");
   }
+  return dynamicUrl;
+}
+
+async function uploadToHost(fileOrBlob, config) {
+  const {
+    endpoint, apiKey, urlField, fileFieldName = "file", authType = "query",
+    fileName, apiKeyFieldName = "api_key", codeField, embedTemplate
+  } = config;
+  if (!apiKey) {
+    throw new Error("API key host ini belum diisi lengkap di Pengaturan.");
+  }
+
+  const uploadUrl = await resolveUploadTarget(config);
+  if (!uploadUrl) {
+    throw new Error("Endpoint upload host ini belum diisi lengkap di Pengaturan.");
+  }
+
   const formData = new FormData();
   formData.append(fileFieldName, fileOrBlob, fileName || fileOrBlob.name || "upload");
 
-  let url = endpoint;
+  let url = uploadUrl;
   const headers = {};
   if (authType === "header") {
     headers["Authorization"] = `Bearer ${apiKey}`;
     headers["AccessKey"] = apiKey;
+  } else if (authType === "form") {
+    // Dikirim sebagai field biasa di body form, bareng file-nya (pola Vidara)
+    formData.append(apiKeyFieldName, apiKey);
   } else {
-    const sep = endpoint.includes("?") ? "&" : "?";
-    url = `${endpoint}${sep}key=${encodeURIComponent(apiKey)}`;
+    const sep = uploadUrl.includes("?") ? "&" : "?";
+    url = `${uploadUrl}${sep}key=${encodeURIComponent(apiKey)}`;
   }
 
   const res = await fetch(url, { method: "POST", body: formData, headers });
@@ -66,9 +106,19 @@ async function uploadToHost(fileOrBlob, config) {
   if (data.success === false || data.error) {
     throw new Error(data.error?.message || data.message || "Upload gagal.");
   }
+
+  // Kalau ada template link embed (mis. "https://vidara.to/e/{code}"),
+  // bangun link-nya dari kode video di respons -- ini dipakai provider
+  // yang responsnya cuma kasih "filecode", bukan link embed langsung jadi.
+  if (embedTemplate && codeField) {
+    const code = getByPath(data, codeField);
+    if (!code) throw new Error("Kode video tidak ditemukan di respons. Cek 'Field Kode Video di Respons'.");
+    return embedTemplate.replace("{code}", code);
+  }
+
   const resultUrl = getByPath(data, urlField || "data.url");
   if (!resultUrl) {
-    throw new Error("URL tidak ditemukan di respons API. Cek isian 'Field URL di Respons' pada host ini.");
+    throw new Error("URL tidak ditemukan di respons API. Cek isian 'Field URL Video di Respons' pada host ini.");
   }
   return resultUrl;
 }
@@ -99,6 +149,9 @@ async function pollUploadStatus(idOrUrl, statusConfig) {
   throw new Error("Video masih diproses, coba cek lagi beberapa saat lagi.");
 }
 
+// ============================================================
+// CROP/ZOOM THUMBNAIL (Cropper.js via CDN di dashboard.html)
+// ============================================================
 let cropperInstance = null;
 let pendingCropResolve = null;
 
@@ -169,6 +222,7 @@ function initCropModalButtons() {
   });
 }
 
+// ---------- Upload Thumbnail (manual link ATAU upload file + crop) ----------
 function initThumbUpload() {
   const fileInput = document.getElementById("f-thumb-file");
   const urlInput = document.getElementById("f-thumb");
@@ -207,6 +261,9 @@ function initThumbUpload() {
   });
 }
 
+// ============================================================
+// AUTO-THUMBNAIL MULTI-HOST
+// ============================================================
 function extractAutoThumbFromEmbed(embedUrl) {
   if (!embedUrl) return null;
   const yt = embedUrl.match(/youtu\.be\/([a-zA-Z0-9_-]+)/)
@@ -244,10 +301,13 @@ async function fetchThumbnailFromHostProfile(embedUrl, profile) {
   try {
     const sep = profile.infoEndpoint.includes("?") ? "&" : "?";
     const paramName = profile.codeParam || "file_code";
-    const url = `${profile.infoEndpoint}${sep}key=${encodeURIComponent(profile.apiKey || "")}&${paramName}=${encodeURIComponent(code)}`;
+    const url = `${profile.infoEndpoint}${sep}api_key=${encodeURIComponent(profile.apiKey || "")}&${paramName}=${encodeURIComponent(code)}`;
     const res = await fetch(url);
     const data = await res.json();
-    return getByPath(data, profile.thumbField || "result.0.player_img") || null;
+    // Sebagian provider (mis. Vidara) balikin array di "result" -- coba
+    // ambil elemen pertama otomatis kalau field yang diminta memang array.
+    let thumb = getByPath(data, profile.thumbField || "result.0.player_img");
+    return thumb || null;
   } catch (e) {
     return null;
   }
@@ -306,6 +366,7 @@ async function autoGenerateThumbnail(embedUrl) {
   return null;
 }
 
+// ---------- Upload Video dari Galeri ----------
 function initVideoUpload() {
   const fileInput = document.getElementById("f-video-file");
   const embedInput = document.getElementById("f-embed");
@@ -324,8 +385,8 @@ function initVideoUpload() {
       status.textContent = "Belum ada host video yang dijadikan aktif untuk upload. Atur dulu di tab Pengaturan → Daftar Host Video.";
       return;
     }
-    if (!activeHost.uploadEndpoint || !activeHost.apiKey) {
-      status.textContent = `Endpoint/API key upload untuk "${activeHost.name}" belum lengkap di Pengaturan.`;
+    if (!activeHost.apiKey) {
+      status.textContent = `API key untuk "${activeHost.name}" belum lengkap di Pengaturan.`;
       return;
     }
 
@@ -337,7 +398,12 @@ function initVideoUpload() {
         urlField: activeHost.uploadUrlField,
         fileFieldName: "file",
         authType: activeHost.uploadAuthType || "query",
-        fileName: file.name
+        apiKeyFieldName: activeHost.uploadApiKeyFieldName || "api_key",
+        fileName: file.name,
+        serverEndpoint: activeHost.uploadServerEndpoint,
+        serverField: activeHost.uploadServerField,
+        codeField: activeHost.uploadCodeField,
+        embedTemplate: activeHost.uploadEmbedTemplate
       });
 
       if (activeHost.uploadStatusEndpoint) {
@@ -366,6 +432,9 @@ document.addEventListener("DOMContentLoaded", () => {
   initCropModalButtons();
 });
 
+// ============================================================
+// AUTH GUARD
+// ============================================================
 onAuthStateChanged(auth, async (user) => {
   if (!user) { window.location.href = "../login.html"; return; }
   const snap = await getDoc(doc(db, "users", user.uid));
@@ -395,6 +464,9 @@ function initTabs() {
   });
 }
 
+// ============================================================
+// PENGATURAN + Daftar Host Video terpadu
+// ============================================================
 let hostProfilesState = [];
 let activeUploadHostName = "";
 
@@ -419,23 +491,29 @@ function renderHostProfilesTable() {
 
       <div class="form-grid full" style="margin-top:10px"><label style="margin-bottom:0;font-weight:600">Untuk Auto-Thumbnail</label></div>
       <div class="form-grid">
-        <div><label>Endpoint Info Video</label><input class="hp-endpoint" value="${p.infoEndpoint || ""}" placeholder="https://api.vidara.so/v1/file/info"></div>
+        <div><label>Endpoint Info Video</label><input class="hp-endpoint" value="${p.infoEndpoint || ""}" placeholder="https://api.vidara.so/v1/video/info"></div>
         <div><label>API Key Host Ini</label><input class="hp-apikey" value="${p.apiKey || ""}" placeholder="API key dari akun host ini"></div>
-        <div><label>Nama Parameter File Code</label><input class="hp-codeparam" value="${p.codeParam || ""}" placeholder="mis. file_code"></div>
+        <div><label>Nama Parameter File Code</label><input class="hp-codeparam" value="${p.codeParam || ""}" placeholder="mis. filecode"></div>
         <div><label>Pola Ambil File Code dari Link (regex)</label><input class="hp-codepattern" value="${p.codePattern || ""}" placeholder="mis. /e/([a-zA-Z0-9]+)"></div>
         <div class="form-grid full"><label>Field Thumbnail di Respons</label><input class="hp-thumbfield" value="${p.thumbField || ""}" placeholder="mis. result.0.player_img"></div>
       </div>
 
       <div class="form-grid full" style="margin-top:10px"><label style="margin-bottom:0;font-weight:600">Untuk Upload Video dari Galeri</label></div>
       <div class="form-grid">
-        <div><label>Endpoint Upload Video</label><input class="hp-upload-endpoint" value="${p.uploadEndpoint || ""}" placeholder="https://api.vidara.so/v1/upload"></div>
+        <div><label>Endpoint Ambil Upload Server (opsional — isi kalau provider butuh 2 langkah, mis. Vidara)</label><input class="hp-upload-server-endpoint" value="${p.uploadServerEndpoint || ""}" placeholder="https://api.vidara.so/v1/upload/server"></div>
+        <div><label>Field Upload Server di Respons</label><input class="hp-upload-server-field" value="${p.uploadServerField || ""}" placeholder="mis. result.upload_server"></div>
+        <div><label>Endpoint Upload Video (dipakai langsung kalau TIDAK isi field di atas)</label><input class="hp-upload-endpoint" value="${p.uploadEndpoint || ""}" placeholder="https://api.vidara.so/v1/upload"></div>
         <div><label>API Key Dikirim Sebagai</label>
           <select class="hp-upload-authtype">
-            <option value="query" ${p.uploadAuthType !== "header" ? "selected" : ""}>Query Param</option>
+            <option value="query" ${p.uploadAuthType !== "header" && p.uploadAuthType !== "form" ? "selected" : ""}>Query Param</option>
             <option value="header" ${p.uploadAuthType === "header" ? "selected" : ""}>Header (Bearer/AccessKey)</option>
+            <option value="form" ${p.uploadAuthType === "form" ? "selected" : ""}>Form Field (bareng file, mis. Vidara)</option>
           </select>
         </div>
-        <div><label>Field URL Video di Respons</label><input class="hp-upload-urlfield" value="${p.uploadUrlField || ""}" placeholder="mis. result.0.embed_url"></div>
+        <div><label>Nama Field API Key (kalau "Form Field")</label><input class="hp-upload-apikeyfield" value="${p.uploadApiKeyFieldName || ""}" placeholder="mis. api_key"></div>
+        <div><label>Field URL Video di Respons (kalau responsnya sudah kasih link jadi)</label><input class="hp-upload-urlfield" value="${p.uploadUrlField || ""}" placeholder="mis. url"></div>
+        <div><label>Field Kode Video di Respons (kalau perlu bangun link sendiri)</label><input class="hp-upload-codefield" value="${p.uploadCodeField || ""}" placeholder="mis. filecode"></div>
+        <div class="form-grid full"><label>Template Link Embed (pakai {code} — isi HANYA kalau pakai Field Kode Video di atas)</label><input class="hp-upload-embedtemplate" value="${p.uploadEmbedTemplate || ""}" placeholder="mis. https://vidara.to/e/{code}"></div>
         <div><label>Endpoint Cek Status (opsional)</label><input class="hp-upload-status-endpoint" value="${p.uploadStatusEndpoint || ""}"></div>
         <div><label>Field Status di Respons</label><input class="hp-upload-status-field" value="${p.uploadStatusField || ""}" placeholder="mis. status"></div>
         <div><label>Nilai Status "Siap"</label><input class="hp-upload-ready-value" value="${p.uploadReadyValue || ""}" placeholder="mis. ready"></div>
@@ -461,9 +539,14 @@ function collectHostProfilesFromUI() {
     codeParam: row.querySelector(".hp-codeparam").value.trim(),
     codePattern: row.querySelector(".hp-codepattern").value.trim(),
     thumbField: row.querySelector(".hp-thumbfield").value.trim(),
+    uploadServerEndpoint: row.querySelector(".hp-upload-server-endpoint").value.trim(),
+    uploadServerField: row.querySelector(".hp-upload-server-field").value.trim(),
     uploadEndpoint: row.querySelector(".hp-upload-endpoint").value.trim(),
     uploadAuthType: row.querySelector(".hp-upload-authtype").value,
+    uploadApiKeyFieldName: row.querySelector(".hp-upload-apikeyfield").value.trim(),
     uploadUrlField: row.querySelector(".hp-upload-urlfield").value.trim(),
+    uploadCodeField: row.querySelector(".hp-upload-codefield").value.trim(),
+    uploadEmbedTemplate: row.querySelector(".hp-upload-embedtemplate").value.trim(),
     uploadStatusEndpoint: row.querySelector(".hp-upload-status-endpoint").value.trim(),
     uploadStatusField: row.querySelector(".hp-upload-status-field").value.trim(),
     uploadReadyValue: row.querySelector(".hp-upload-ready-value").value.trim()
@@ -533,6 +616,9 @@ document.addEventListener("click", async (e) => {
   alert("Pengaturan tersimpan.");
 });
 
+// ============================================================
+// KELOLA IKON KATEGORI (manual, opsional)
+// ============================================================
 async function loadCategoryIconManager() {
   const wrap = document.getElementById("category-icon-manager");
   if (!wrap) return;
@@ -592,6 +678,9 @@ document.addEventListener("change", async (e) => {
   }
 });
 
+// ============================================================
+// KELOLA HALAMAN STATIS (Kontak, Privacy Policy, Terms, DMCA, Disclaimer)
+// ============================================================
 const STATIC_PAGE_DEFAULT_TITLES = {
   "contact": "Kontak",
   "privacy-policy": "Privacy Policy",
@@ -635,6 +724,9 @@ document.addEventListener("click", async (e) => {
   }
 });
 
+// ============================================================
+// KATEGORI & TAG
+// ============================================================
 async function upsertCategory(name) {
   if (!name) return;
   const slug = slugify(name);
@@ -661,6 +753,9 @@ async function upsertTags(tags) {
   }
 }
 
+// ============================================================
+// FORM VIDEO
+// ============================================================
 let editingVideoId = null;
 
 function fillForm(v) {
