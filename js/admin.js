@@ -449,6 +449,16 @@ function renderHostProfilesTable() {
         <div><label>Pola Domain (regex)</label><input class="hp-domain" value="${p.domainPattern || ""}" placeholder="mis. vidara\\.to"></div>
       </div>
 
+      <div class="form-grid full" style="margin-top:8px">
+        <div class="form-grid full">
+          <label>Domain Pengganti (isi HANYA kalau host ini baru saja pindah domain)</label>
+          <input class="hp-replacement" value="${p.replacementDomain || ""}" placeholder="mis. playexa2s.app (kosongkan kalau domain masih sama)">
+          <div class="field-hint" style="font-size:.75rem;color:var(--text-muted);margin-top:4px">
+            Video yang link embed-nya cocok "Pola Domain" di atas akan otomatis dialihkan ke domain ini saat diputar — link asli di database TIDAK diubah.
+          </div>
+        </div>
+      </div>
+
       <div class="form-grid full" style="margin-top:10px"><label style="margin-bottom:0;font-weight:600">Untuk Auto-Thumbnail</label></div>
       <div class="form-grid">
         <div><label>Endpoint Info Video</label><input class="hp-endpoint" value="${p.infoEndpoint || ""}" placeholder="https://api.vidara.so/v1/file/info"></div>
@@ -487,6 +497,7 @@ function collectHostProfilesFromUI() {
   return Array.from(rows).map(row => ({
     name: row.querySelector(".hp-name").value.trim(),
     domainPattern: row.querySelector(".hp-domain").value.trim(),
+    replacementDomain: row.querySelector(".hp-replacement").value.trim(),
     infoEndpoint: row.querySelector(".hp-endpoint").value.trim(),
     apiKey: row.querySelector(".hp-apikey").value.trim(),
     codeParam: row.querySelector(".hp-codeparam").value.trim(),
