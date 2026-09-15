@@ -40,9 +40,17 @@
   }
   .nf-wrap input:focus{outline:none;border-color:var(--text)}
 
+  /* FIX: warna teks tombol aksen sebelumnya di-hardcode putih (#fff).
+     Kalau admin memilih Warna Tema yang terang (krem/putih/pastel),
+     teks putih di atas background terang jadi tidak terbaca sama
+     sekali -- BUKAN teksnya hilang, cuma tidak kontras. Diganti jadi
+     warna gelap (#0A0A0B), sama seperti tombol aksen di halaman lain
+     (lihat .btn di css/style.css) -- kombinasi teks gelap + background
+     aksen ini tetap kebaca jelas baik untuk warna tema terang maupun
+     gelap/vivid seperti oranye default situs. */
   .btn-accent{
     width:100%;padding:14px;border:none;border-radius:5px;background:var(--accent);
-    color:#fff;font-weight:700;font-size:1rem;cursor:pointer;margin-top:6px;
+    color:#0A0A0B;font-weight:700;font-size:1rem;cursor:pointer;margin-top:6px;
   }
   .btn-accent[disabled]{opacity:.6;cursor:not-allowed}
 
@@ -284,7 +292,6 @@ try {
   }
 } catch (e) {}
 
-// ---------- Ganti tampilan (login / daftar / lupa sandi) ----------
 function showView(id) {
   document.getElementById("form-login").style.display = "none";
   document.getElementById("form-register").style.display = "none";
@@ -296,7 +303,6 @@ function showView(id) {
 document.getElementById("tab-register").addEventListener("click", () => showView("form-register"));
 document.getElementById("tab-login").addEventListener("click", () => showView("form-login"));
 
-// ---------- Tombol lihat/sembunyi sandi ----------
 function wirePasswordToggle(inputId, btnId) {
   const input = document.getElementById(inputId);
   const btn = document.getElementById(btnId);
@@ -310,7 +316,6 @@ function wirePasswordToggle(inputId, btnId) {
 wirePasswordToggle("login-password", "toggle-password");
 wirePasswordToggle("reg-password", "toggle-reg-password");
 
-// ---------- Login Google ----------
 const googleBtn = document.getElementById("google-login");
 googleBtn.addEventListener("click", withLoadingState(googleBtn, async () => {
   try {
@@ -321,7 +326,6 @@ googleBtn.addEventListener("click", withLoadingState(googleBtn, async () => {
   }
 }));
 
-// ---------- Login email/sandi ----------
 const loginBtn = document.getElementById("btn-login");
 loginBtn.addEventListener("click", withLoadingState(loginBtn, async () => {
   const email = loginEmailInput.value.trim();
@@ -329,10 +333,7 @@ loginBtn.addEventListener("click", withLoadingState(loginBtn, async () => {
   if (!email || !password) { setMsg("Isi email dan sandi dulu.", true); return; }
 
   try {
-    // "Ingat saya": kalau dicentang, sesi tetap login walau browser ditutup.
-    // Kalau tidak dicentang, otomatis logout saat tab/browser ditutup.
     await setLoginPersistence(rememberBox.checked);
-
     await loginWithEmail(email, password);
     try {
       if (rememberBox.checked) localStorage.setItem("nokt_remember_email", email);
@@ -344,7 +345,6 @@ loginBtn.addEventListener("click", withLoadingState(loginBtn, async () => {
   }
 }));
 
-// ---------- Daftar ----------
 const registerBtn = document.getElementById("btn-register");
 registerBtn.addEventListener("click", withLoadingState(registerBtn, async () => {
   const name = document.getElementById("reg-name").value.trim();
@@ -360,7 +360,6 @@ registerBtn.addEventListener("click", withLoadingState(registerBtn, async () => 
   }
 }));
 
-// ---------- Lupa sandi ----------
 document.getElementById("btn-forgot").addEventListener("click", () => {
   document.getElementById("forgot-email").value = loginEmailInput.value.trim();
   showView("form-forgot");
