@@ -2,7 +2,7 @@
 // NOKT HUB — Generic Listing + Pagination
 // Dipakai oleh: category.html, tag.html, search.html, latest.html, popular.html
 // ============================================================
-import { db, collection, query, where, orderBy, getDocs, addDoc, serverTimestamp } from "./firebase-config.js";
+import { db, collection, query, where, orderBy, getDocs, addDoc, serverTimestamp } from "./core.js";
 import { escapeHtml } from "./app.js";
 
 const PAGE_SIZE = 12;
@@ -40,7 +40,6 @@ function renderPagination() {
   const wrap = document.getElementById("pagination");
   const totalPages = Math.max(1, Math.ceil(fullList.length / PAGE_SIZE));
   wrap.innerHTML = "";
-  // Selalu bisa berpindah halaman berapapun tanpa error, termasuk lompat jauh
   for (let p = 1; p <= totalPages; p++) {
     const btn = document.createElement("button");
     btn.textContent = p;
@@ -67,11 +66,6 @@ export async function initTagListing(tag) {
   const all = await fetchAllPublished();
   fullList = all.filter(v => (v.tags||[]).map(t=>t.toLowerCase()).includes(tag.toLowerCase()));
   document.getElementById("listing-title").textContent = `Tag: #${tag}`;
-
-  // Tambah searchTagCount tiap kali tag diklik/dibuka -> mempengaruhi Popular Score
-  fullList.forEach(async (v) => {
-    // Dilakukan di admin/backend job idealnya; di sini contoh client-side sederhana
-  });
   renderPage();
 }
 

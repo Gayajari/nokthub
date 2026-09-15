@@ -1,22 +1,17 @@
 // ============================================================
 // NOKT HUB — Halaman Profil
 // ============================================================
-import { db, doc, getDoc, updateDoc, updateProfile as fbUpdateProfile } from "./firebase-config.js";
-import { watchAuthState, logout, getAvatarForUid, DEFAULT_AVATARS } from "./auth.js";
+import {
+  db, doc, getDoc, updateDoc, updateProfile as fbUpdateProfile,
+  watchAuthState, logout, getAvatarForUid, DEFAULT_AVATARS
+} from "./core.js";
 
 let currentUser = null;
 
-// ---------- Avatar fallback ----------
-// Kalau user tidak punya foto profil sama sekali (mis. daftar pakai email),
-// avatar diambil dari 5 avatar default kita SENDIRI (file lokal di
-// assets/default-avatars/), dipilih konsisten berdasarkan uid -- BUKAN
-// dari layanan luar (ui-avatars.com) seperti sebelumnya. Ini lebih cepat
-// dimuat dan tidak tergantung layanan pihak ketiga yang bisa lambat/gagal.
 function avatarFallbackUrl(uid) {
   return uid ? getAvatarForUid(uid) : DEFAULT_AVATARS[0];
 }
 
-// ---------- Terapkan dari cache dulu (instan, minim kedip) ----------
 function applyCachedAuthToProfileSections() {
   let cached = null;
   try { cached = JSON.parse(localStorage.getItem("nokt_auth_cache") || "null"); } catch (e) { cached = null; }
@@ -59,7 +54,6 @@ async function renderLoggedInProfile(user) {
 
   if (avatarEl) {
     avatarEl.src = user.photoURL || avatarFallbackUrl(user.uid);
-    // Jaga-jaga kalau photoURL dari Google/lama ternyata rusak/mati juga
     avatarEl.onerror = () => { avatarEl.onerror = null; avatarEl.src = DEFAULT_AVATARS[0]; };
   }
   if (nameInput) nameInput.value = user.displayName || "";
@@ -72,8 +66,6 @@ async function renderLoggedInProfile(user) {
     const snap = await getDoc(doc(db, "users", user.uid));
     if (snap.exists()) {
       const data = snap.data();
-      // Kalau Firestore ternyata punya photoURL tapi Firebase Auth belum
-      // (mis. akun lama sebelum migrasi), pakai yang dari Firestore.
       if (avatarEl && !user.photoURL && data.photoURL) {
         avatarEl.src = data.photoURL;
       }

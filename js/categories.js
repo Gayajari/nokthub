@@ -2,10 +2,9 @@
 // NOKT HUB — Kategori dinamis (versi chip-row scroll horizontal)
 // Kategori TIDAK dibuat manual: otomatis muncul saat admin
 // mengupload video dengan kategori baru (lihat admin.js: upsertCategory).
-// Ikon per kategori diambil dari js/icons.js.
+// Ikon per kategori diambil dari core.js.
 // ============================================================
-import { db, collection, getDocs, orderBy, query } from "./firebase-config.js";
-import { resolveCategoryIcon, iconSvg, areIconsGloballyHidden } from "./icons.js";
+import { db, collection, getDocs, orderBy, query, resolveCategoryIcon, iconSvg, areIconsGloballyHidden } from "./core.js";
 
 const SCROLL_KEY = "nokt_catnav_scroll";
 
