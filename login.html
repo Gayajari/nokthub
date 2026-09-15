@@ -225,7 +225,7 @@
 </script>
 
 <script type="module">
-import { loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword, watchAuthState, setLoginPersistence } from "./js/auth.js";
+import { loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword, watchAuthState, setLoginPersistence } from "./js/core.js";
 
 const msg = document.getElementById("auth-msg");
 
@@ -381,12 +381,6 @@ sendResetBtn.addEventListener("click", withLoadingState(sendResetBtn, async () =
 }));
 </script>
 
-<script type="module" src="js/firebase-config.js"></script>
 <script type="module" src="js/app.js"></script>
-
-<script type="module">
-  import { mountStickyMobileBanner } from "./js/ads.js";
-  mountStickyMobileBanner();
-</script>
 </body>
 </html>
