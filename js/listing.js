@@ -3,7 +3,7 @@
 // Dipakai oleh: category.html, tag.html, search.html, latest.html, popular.html
 // ============================================================
 import { db, collection, query, where, orderBy, getDocs, addDoc, serverTimestamp } from "./core.js";
-import { escapeHtml } from "./app.js";
+import { escapeHtml } from "./site.js";
 
 const PAGE_SIZE = 12;
 let fullList = [];
