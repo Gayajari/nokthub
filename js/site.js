@@ -1,10 +1,11 @@
 // ============================================================
 // NOKT HUB — Site (App Core + Kategori)
 // ============================================================
-// File ini GABUNGAN dari 2 file yang dulu terpisah:
+// File ini GABUNGAN dari 3 file yang dulu terpisah:
 //   - app.js        (logic halaman home, search, pengaturan situs)
 //   - categories.js  (baris chip kategori di header, tampil di
 //                      hampir semua halaman)
+//   - listing.js     (listing generik: category/tag/search/latest/popular)
 // Digabung supaya lebih sedikit file yang perlu dibuka-tutup saat
 // maintenance -- fungsinya PERSIS SAMA seperti sebelumnya.
 // ============================================================
@@ -484,4 +485,94 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 });
 
-export { computePopularScore, renderVideoCard, escapeHtml, PAGE_SIZE, buildThumbChain };
+
+// ---------- Listing generik (dulu listing.js) ----------
+// Dipakai oleh category.html, tag.html, search.html, latest.html, popular.html
+let listingFullList = [];
+let listingCurrentPage = 1;
+const LISTING_PAGE_SIZE = 12;
+
+function renderListingCard(v) {
+  return `
+    <a class="video-card" href="watch.html?id=${v.id}">
+      <div class="thumb-wrap"><img src="${v.thumbnail}" alt="${escapeHtml(v.title)}" loading="lazy"></div>
+      <div class="card-body">
+        <div class="card-title">${escapeHtml(v.title)}</div>
+        <div class="card-meta">
+          <span>${(v.viewCount||0).toLocaleString('id-ID')} view</span>
+          <span>•</span><span>${escapeHtml(v.category||'-')}</span>
+        </div>
+      </div>
+    </a>`;
+}
+
+function renderListingPage() {
+  const grid = document.getElementById("listing-grid");
+  const start = (listingCurrentPage - 1) * LISTING_PAGE_SIZE;
+  const items = listingFullList.slice(start, start + LISTING_PAGE_SIZE);
+  grid.innerHTML = items.map(renderListingCard).join("") ||
+    `<p style="color:var(--text-muted)">Tidak ada video ditemukan.</p>`;
+  renderListingPagination();
+}
+
+function renderListingPagination() {
+  const wrap = document.getElementById("pagination");
+  const totalPages = Math.max(1, Math.ceil(listingFullList.length / LISTING_PAGE_SIZE));
+  wrap.innerHTML = "";
+  for (let p = 1; p <= totalPages; p++) {
+    const btn = document.createElement("button");
+    btn.textContent = p;
+    if (p === listingCurrentPage) btn.classList.add("active");
+    btn.addEventListener("click", () => { listingCurrentPage = p; renderListingPage(); window.scrollTo(0,0); });
+    wrap.appendChild(btn);
+  }
+}
+
+async function fetchAllPublishedForListing() {
+  const q = query(collection(db, "videos"), where("status", "==", "publish"), orderBy("uploadedAt", "desc"));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function initCategoryListing(categorySlug) {
+  const all = await fetchAllPublishedForListing();
+  listingFullList = all.filter(v => (v.category||"").toLowerCase() === categorySlug.toLowerCase());
+  document.getElementById("listing-title").textContent = `Kategori: ${categorySlug}`;
+  renderListingPage();
+}
+
+async function initTagListing(tag) {
+  const all = await fetchAllPublishedForListing();
+  listingFullList = all.filter(v => (v.tags||[]).map(t=>t.toLowerCase()).includes(tag.toLowerCase()));
+  document.getElementById("listing-title").textContent = `Tag: #${tag}`;
+  renderListingPage();
+}
+
+async function initSearchListing(term) {
+  const all = await fetchAllPublishedForListing();
+  const t = term.toLowerCase();
+  listingFullList = all.filter(v =>
+    (v.title||"").toLowerCase().includes(t) ||
+    (v.description||"").toLowerCase().includes(t) ||
+    (v.category||"").toLowerCase().includes(t) ||
+    (v.tags||[]).some(tag => tag.toLowerCase().includes(t))
+  );
+  document.getElementById("listing-title").textContent = `Hasil pencarian: "${term}"`;
+  await addDoc(collection(db, "search_logs"), { term, searchedAt: serverTimestamp() });
+  renderListingPage();
+}
+
+async function initLatestListing() {
+  listingFullList = await fetchAllPublishedForListing();
+  document.getElementById("listing-title").textContent = "Semua Video Terbaru";
+  renderListingPage();
+}
+
+async function initPopularListing() {
+  const all = await fetchAllPublishedForListing();
+  listingFullList = all.sort((a,b) => computePopularScore(b) - computePopularScore(a));
+  document.getElementById("listing-title").textContent = "Semua Video Populer";
+  renderListingPage();
+}
+
+export { computePopularScore, renderVideoCard, escapeHtml, PAGE_SIZE, buildThumbChain, initCategoryListing, initTagListing, initSearchListing, initLatestListing, initPopularListing };
