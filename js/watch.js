@@ -7,7 +7,7 @@ import {
   onAuthStateChanged, onSnapshot, getAvatarForUid, DEFAULT_AVATARS
 } from "./core.js";
 import { renderPlayer, trackResumePosition } from "./player.js";
-import { escapeHtml, renderVideoCard, computePopularScore, buildThumbChain } from "./app.js";
+import { escapeHtml, renderVideoCard, computePopularScore, buildThumbChain } from "./site.js";
 
 // ---------- FIX: header komentar "macet"/ketutup navbar ----------
 function updateSiteHeaderHeightVar() {
