@@ -42,7 +42,7 @@
   </div>
 
   <!-- Baris kategori: chip scroll-horizontal, dirender otomatis oleh
-       js/categories.js dari koleksi Firestore "categories". -->
+       js/site.js dari koleksi Firestore "categories". -->
   <div id="category-row" class="catnav-row"></div>
 </header>
 
@@ -71,7 +71,7 @@
 <script type="module" src="js/core.js"></script>
 <script type="module" src="js/site.js"></script>
 <script type="module">
-import { initTagListing } from "./js/listing.js";
+import { initTagListing } from "./js/site.js";
 const params = new URLSearchParams(window.location.search);
 initTagListing(params.get('t') || '');
 </script>
