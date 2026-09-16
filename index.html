@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title id="site-title">NOKT HUB — Streaming Video</title>
+<meta id="site-meta-desc" name="description" content="NOKT HUB — platform streaming video terbaru, terpopuler, dan trending.">
+<meta name="theme-color" id="meta-theme-color" content="#0A0A0B">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" id="site-favicon" href="https://i.ibb.co.com/nss27bKz/20260716-103634.png">
+
+<!-- Anti-flash: terapkan warna tema tersimpan SEBELUM halaman digambar,
+     supaya tidak kelihatan "kedip" oranye default sebelum berganti ke
+     warna yang diset admin. Diisi otomatis oleh js/app.js tiap kunjungan. -->
+<script>
+  (function(){
+    try {
+      var c = JSON.parse(localStorage.getItem('nokt_settings_cache') || 'null');
+      if (c && c.themeColor) {
+        document.documentElement.style.setProperty('--accent', c.themeColor);
+      }
+      if (c && c.siteName) {
+        document.write('<style>.site-brand-text,.site-name-inline{visibility:hidden}</style>');
+      }
+      var authCache = JSON.parse(localStorage.getItem('nokt_auth_cache') || 'null');
+      if (authCache) {
+        document.write('<style>#login-btn,#profile-btn{visibility:hidden}</style>');
+      }
+    } catch(e) {}
+  })();
+</script>
+
+<!-- Open Graph -->
+<meta property="og:title" id="og-site-title" content="NOKT HUB — Streaming Video">
+<meta property="og:description" id="og-site-desc" content="Tonton video terbaru dan terpopuler di NOKT HUB.">
+<meta property="og:type" content="website">
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swapfamily=Inter:wght@400;500;600https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swapfamily=JetBrains+Mono:wght@400;500https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swapdisplay=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+
+<!-- JSON-LD -->
+<script type="application/ld+json" id="site-json-ld">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "NOKT HUB",
+  "url": "https://nokthub.example.com"
+}
+</script>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-row container">
+    <a href="index.html" class="brand">
+      <img id="site-logo-img" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" alt="NOKT HUB logo" style="width:32px;height:32px;background:var(--surface);border-radius:6px">
+      <span class="site-brand-text">NOKT HUB</span> <span class="dot"></span>
+    </a>
+    <a href="index.html" class="nav-btn">Home</a>
+
+    <div class="search-wrap">
+      <input id="search-input" class="search-input" type="text" placeholder="Cari berdasarkan video... ">
+      <div id="search-results" class="search-results"></div>
+    </div>
+
+    <button id="login-btn" class="btn">Login</button>
+    <div id="profile-btn" class="profile-btn nav-btn" style="display:none;cursor:pointer"></div>
+  </div>
+
+  <!-- Baris kategori: chip scroll-horizontal, dirender otomatis oleh
+       js/categories.js dari koleksi Firestore "categories". Diletakkan
+       sebagai baris terpisah (bukan sejajar search) supaya tidak sesak
+       di layar sempit / mobile. -->
+  <div id="category-row" class="catnav-row"></div>
+</header>
+
+<section class="hero">
+  <div id="hero-slider"></div>
+  <div id="hero-dots" class="hero-dots"></div>
+</section>
+
+<main class="container">
+  <section class="section">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">Baru Diupload</div>
+        <h2>Video Terbaru</h2>
+      </div>
+      <a href="latest.html" class="nav-btn">Lihat semua →</a>
+    </div>
+    <div id="latest-grid" class="video-grid"></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">Popular Score</div>
+        <h2>Video Populer</h2>
+      </div>
+      <a href="popular.html" class="nav-btn">Lihat semua →</a>
+    </div>
+    <div id="popular-grid" class="video-grid"></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>Trending Tag</h2></div>
+    <div id="trending-tags"></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>Trending Kategori</h2></div>
+    <div id="trending-categories"></div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="container footer-grid">
+    <div>
+      <a href="index.html" class="brand site-brand-text" style="margin-bottom:8px;display:inline-block;text-decoration:none">NOKT HUB</a>
+      <p>© 2026 <span class="site-name-inline">NOKT HUB</span>. Semua konten milik pemilik hak cipta masing-masing.</p>
+    </div>
+    <div class="footer-links">
+      <a href="contact.html">Kontak</a>
+      <a href="privacy-policy.html">Privacy Policy</a>
+      <a href="terms.html">Terms</a>
+      <a href="dmca.html">DMCA</a>
+      <a href="disclaimer.html">Disclaimer</a>
+    </div>
+  </div>
+</footer>
+
+<script type="module" src="js/core.js"></script>
+<script type="module" src="js/site.js"></script>
+
+<script type="module">
+  import { mountStickyMobileBanner, injectGridAds } from "./js/ads.js";
+  mountStickyMobileBanner();
+  injectGridAds("#latest-grid", 8);
+  injectGridAds("#popular-grid", 8);
+</script>
+</body>
+</html>
