@@ -14,29 +14,6 @@ function slugify(str) {
 }
 
 // ============================================================
-// FIX (bug: data tersimpan berisi kode HTML lengkap ikut ter-render
-// sebagai elemen sungguhan di halaman admin, contoh: field "Pola Domain
-// (regex)" yang isinya "<!DOCTYPE html> <html lang=..." bikin header,
-// search bar, tombol Login, dst dari index.html ikut nempel di dashboard).
-// Root cause: nilai dari Firestore dimasukkan LANGSUNG ke template
-// string innerHTML (mis. value="${p.domainPattern}") tanpa di-escape.
-// Kalau nilainya mengandung karakter " atau < / >, karakter itu memutus
-// atribut HTML dan sisa teksnya diparsing browser sebagai tag beneran.
-// escapeHtml() di bawah ini menetralkan karakter tsb jadi entity HTML
-// (&quot; &lt; &gt; dst) sehingga apa pun isinya HANYA tampil sebagai
-// teks di dalam input/tabel, tidak pernah lagi diparsing jadi elemen.
-// ============================================================
-function escapeHtml(str) {
-  return String(str ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  }[c]));
-}
-
-// ============================================================
 // NORMALISASI LINK THUMBNAIL MANUAL
 // Banyak link "gambar" yang ditempel orang sebenarnya link halaman
 // viewer (Google Drive, Dropbox, dll), bukan link file gambar langsung.
@@ -230,7 +207,7 @@ function initThumbUpload() {
   urlInput.addEventListener("change", () => {
     const normalized = normalizeThumbLink(urlInput.value.trim());
     urlInput.value = normalized;
-    preview.innerHTML = normalized ? `<img src="${escapeHtml(normalized)}" alt="preview thumbnail">` : "";
+    preview.innerHTML = normalized ? `<img src="${normalized}" alt="preview thumbnail">` : "";
   });
 
   if (!fileInput) return;
@@ -250,7 +227,7 @@ function initThumbUpload() {
         fileFieldName: "image", authType: "query", fileName: "thumbnail.jpg"
       });
       urlInput.value = url;
-      preview.innerHTML = `<img src="${escapeHtml(url)}" alt="preview thumbnail">`;
+      preview.innerHTML = `<img src="${url}" alt="preview thumbnail">`;
       status.textContent = "Berhasil diupload.";
     } catch (err) {
       status.textContent = "Gagal upload: " + err.message;
@@ -468,14 +445,14 @@ function renderHostProfilesTable() {
   wrap.innerHTML = hostProfilesState.map((p, i) => `
     <div class="host-profile-row" data-i="${i}" style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
       <div class="form-grid">
-        <div><label>Nama Host</label><input class="hp-name" value="${escapeHtml(p.name || "")}" placeholder="mis. Vidara"></div>
-        <div><label>Pola Domain (regex)</label><input class="hp-domain" value="${escapeHtml(p.domainPattern || "")}" placeholder="mis. vidara\\.to"></div>
+        <div><label>Nama Host</label><input class="hp-name" value="${p.name || ""}" placeholder="mis. Vidara"></div>
+        <div><label>Pola Domain (regex)</label><input class="hp-domain" value="${p.domainPattern || ""}" placeholder="mis. vidara\\.to"></div>
       </div>
 
       <div class="form-grid full" style="margin-top:8px">
         <div class="form-grid full">
           <label>Domain Pengganti (isi HANYA kalau host ini baru saja pindah domain)</label>
-          <input class="hp-replacement" value="${escapeHtml(p.replacementDomain || "")}" placeholder="mis. playexa2s.app (kosongkan kalau domain masih sama)">
+          <input class="hp-replacement" value="${p.replacementDomain || ""}" placeholder="mis. playexa2s.app (kosongkan kalau domain masih sama)">
           <div class="field-hint" style="font-size:.75rem;color:var(--text-muted);margin-top:4px">
             Video yang link embed-nya cocok "Pola Domain" di atas akan otomatis dialihkan ke domain ini saat diputar — link asli di database TIDAK diubah.
           </div>
@@ -484,26 +461,26 @@ function renderHostProfilesTable() {
 
       <div class="form-grid full" style="margin-top:10px"><label style="margin-bottom:0;font-weight:600">Untuk Auto-Thumbnail</label></div>
       <div class="form-grid">
-        <div><label>Endpoint Info Video</label><input class="hp-endpoint" value="${escapeHtml(p.infoEndpoint || "")}" placeholder="https://api.vidara.so/v1/file/info"></div>
-        <div><label>API Key Host Ini</label><input class="hp-apikey" value="${escapeHtml(p.apiKey || "")}" placeholder="API key dari akun host ini"></div>
-        <div><label>Nama Parameter File Code</label><input class="hp-codeparam" value="${escapeHtml(p.codeParam || "")}" placeholder="mis. file_code"></div>
-        <div><label>Pola Ambil File Code dari Link (regex)</label><input class="hp-codepattern" value="${escapeHtml(p.codePattern || "")}" placeholder="mis. /e/([a-zA-Z0-9]+)"></div>
-        <div class="form-grid full"><label>Field Thumbnail di Respons</label><input class="hp-thumbfield" value="${escapeHtml(p.thumbField || "")}" placeholder="mis. result.0.player_img"></div>
+        <div><label>Endpoint Info Video</label><input class="hp-endpoint" value="${p.infoEndpoint || ""}" placeholder="https://api.vidara.so/v1/file/info"></div>
+        <div><label>API Key Host Ini</label><input class="hp-apikey" value="${p.apiKey || ""}" placeholder="API key dari akun host ini"></div>
+        <div><label>Nama Parameter File Code</label><input class="hp-codeparam" value="${p.codeParam || ""}" placeholder="mis. file_code"></div>
+        <div><label>Pola Ambil File Code dari Link (regex)</label><input class="hp-codepattern" value="${p.codePattern || ""}" placeholder="mis. /e/([a-zA-Z0-9]+)"></div>
+        <div class="form-grid full"><label>Field Thumbnail di Respons</label><input class="hp-thumbfield" value="${p.thumbField || ""}" placeholder="mis. result.0.player_img"></div>
       </div>
 
       <div class="form-grid full" style="margin-top:10px"><label style="margin-bottom:0;font-weight:600">Untuk Upload Video dari Galeri</label></div>
       <div class="form-grid">
-        <div><label>Endpoint Upload Video</label><input class="hp-upload-endpoint" value="${escapeHtml(p.uploadEndpoint || "")}" placeholder="https://api.vidara.so/v1/upload"></div>
+        <div><label>Endpoint Upload Video</label><input class="hp-upload-endpoint" value="${p.uploadEndpoint || ""}" placeholder="https://api.vidara.so/v1/upload"></div>
         <div><label>API Key Dikirim Sebagai</label>
           <select class="hp-upload-authtype">
             <option value="query" ${p.uploadAuthType !== "header" ? "selected" : ""}>Query Param</option>
             <option value="header" ${p.uploadAuthType === "header" ? "selected" : ""}>Header (Bearer/AccessKey)</option>
           </select>
         </div>
-        <div><label>Field URL Video di Respons</label><input class="hp-upload-urlfield" value="${escapeHtml(p.uploadUrlField || "")}" placeholder="mis. result.0.embed_url"></div>
-        <div><label>Endpoint Cek Status (opsional)</label><input class="hp-upload-status-endpoint" value="${escapeHtml(p.uploadStatusEndpoint || "")}"></div>
-        <div><label>Field Status di Respons</label><input class="hp-upload-status-field" value="${escapeHtml(p.uploadStatusField || "")}" placeholder="mis. status"></div>
-        <div><label>Nilai Status "Siap"</label><input class="hp-upload-ready-value" value="${escapeHtml(p.uploadReadyValue || "")}" placeholder="mis. ready"></div>
+        <div><label>Field URL Video di Respons</label><input class="hp-upload-urlfield" value="${p.uploadUrlField || ""}" placeholder="mis. result.0.embed_url"></div>
+        <div><label>Endpoint Cek Status (opsional)</label><input class="hp-upload-status-endpoint" value="${p.uploadStatusEndpoint || ""}"></div>
+        <div><label>Field Status di Respons</label><input class="hp-upload-status-field" value="${p.uploadStatusField || ""}" placeholder="mis. status"></div>
+        <div><label>Nilai Status "Siap"</label><input class="hp-upload-ready-value" value="${p.uploadReadyValue || ""}" placeholder="mis. ready"></div>
       </div>
 
       <label style="margin-top:10px;display:flex;align-items:center;gap:6px;cursor:pointer">
@@ -624,16 +601,16 @@ async function loadCategoryIconManager() {
     const currentIcon = resolveCategoryIcon(cat);
     const isManual = !!cat.icon;
     return `
-      <div class="cat-icon-row" data-slug="${escapeHtml(cat.slug)}" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div class="cat-icon-row" data-slug="${cat.slug}" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
         <span class="cat-icon-preview" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text)">${iconSvg(currentIcon)}</span>
-        <span style="flex:1;font-size:.88rem">${escapeHtml(cat.name)}</span>
-        <select class="cat-icon-select" data-slug="${escapeHtml(cat.slug)}" data-name="${escapeHtml(cat.name)}" style="width:auto;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:6px;font-size:.8rem">
+        <span style="flex:1;font-size:.88rem">${cat.name}</span>
+        <select class="cat-icon-select" data-slug="${cat.slug}" data-name="${cat.name}" style="width:auto;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:6px;font-size:.8rem">
           <option value="">Otomatis (tebak dari nama)</option>
           ${allIconIds().map(id => `
             <option value="${id}" ${isManual && cat.icon === id ? "selected" : ""}>${ICON_LIBRARY[id].label}</option>
           `).join("")}
         </select>
-        <span class="cat-icon-status" data-slug="${escapeHtml(cat.slug)}" style="font-size:.72rem;color:var(--accent);min-width:60px"></span>
+        <span class="cat-icon-status" data-slug="${cat.slug}" style="font-size:.72rem;color:var(--accent);min-width:60px"></span>
       </div>`;
   }).join("");
 }
@@ -762,7 +739,7 @@ function fillForm(v) {
   document.getElementById("f-keywords").value = v.metaKeywords || "";
   document.getElementById("f-admin-name").value = v.adminName || "";
   const preview = document.getElementById("thumb-preview");
-  preview.innerHTML = v.thumbnail ? `<img src="${escapeHtml(v.thumbnail)}" alt="preview thumbnail">` : "";
+  preview.innerHTML = v.thumbnail ? `<img src="${v.thumbnail}" alt="preview thumbnail">` : "";
 }
 
 function resetForm() {
@@ -846,9 +823,9 @@ async function loadVideoTable() {
     const v = d.data();
     return `
       <tr>
-        <td>${escapeHtml(v.title)}</td>
-        <td>${escapeHtml(v.category || "-")}</td>
-        <td>${escapeHtml(v.status)}</td>
+        <td>${v.title}</td>
+        <td>${v.category || "-"}</td>
+        <td>${v.status}</td>
         <td>${v.viewCount || 0}</td>
         <td class="row-actions">
           <button class="share-btn" data-edit="${d.id}">Edit</button>
