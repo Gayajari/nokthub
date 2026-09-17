@@ -4,10 +4,11 @@
 import {
   db, auth, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc,
   deleteDoc, query, where, orderBy, limit, increment, serverTimestamp,
-  onAuthStateChanged, onSnapshot, getAvatarForUid, DEFAULT_AVATARS
-} from "./core.js";
+  onAuthStateChanged, onSnapshot
+} from "./firebase-config.js";
 import { renderPlayer, trackResumePosition } from "./player.js";
 import { escapeHtml, renderVideoCard, computePopularScore, buildThumbChain } from "./app.js";
+import { getAvatarForUid, DEFAULT_AVATARS } from "./auth.js";
 
 // ---------- FIX: header komentar "macet"/ketutup navbar ----------
 function updateSiteHeaderHeightVar() {
@@ -561,12 +562,6 @@ function renderReplyBox(parentId, mentionName) {
     </div>`;
 }
 
-// ---------- Avatar komentar ----------
-// Kalau komentar itu tidak punya userPhoto (data lama / user daftar via
-// email sebelum fitur avatar default ada), pakai salah satu dari 5 avatar
-// lokal kita, dipilih KONSISTEN berdasarkan uid pemilik komentar. Dipakai
-// baik di daftar komentar utama (renderComment) maupun di preview
-// komentar berputar di header (renderCommentPreview) -- lihat di bawah.
 function commentAvatarUrl(c) {
   return c.userPhoto || getAvatarForUid(c.uid || "anon");
 }
