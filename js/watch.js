@@ -4,11 +4,106 @@
 import {
   db, auth, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc,
   deleteDoc, query, where, orderBy, limit, increment, serverTimestamp,
-  onAuthStateChanged, onSnapshot
-} from "./firebase-config.js";
-import { renderPlayer, trackResumePosition } from "./player.js";
-import { escapeHtml, renderVideoCard, computePopularScore, buildThumbChain } from "./app.js";
-import { getAvatarForUid, DEFAULT_AVATARS } from "./auth.js";
+  onAuthStateChanged, onSnapshot, getAvatarForUid, DEFAULT_AVATARS
+} from "./core.js";
+import { escapeHtml, renderVideoCard, computePopularScore, buildThumbChain } from "./site.js";
+
+
+// ============================================================
+// Universal Embed Player (dulu player.js)
+// ============================================================
+function detectEmbedType(url) {
+  if (!url) return "unknown";
+  const u = url.toLowerCase().trim();
+
+  if (u.includes("youtube.com") || u.includes("youtu.be")) return "youtube";
+  if (u.includes("vimeo.com")) return "vimeo";
+  if (u.includes("drive.google.com")) return "gdrive";
+  if (/\.(mp4|webm|ogg|m3u8)(\?.*)?$/i.test(u)) return "mp4";
+  if (u.startsWith("http://") || u.startsWith("https://")) return "iframe";
+  return "unknown";
+}
+
+function toYoutubeEmbed(url) {
+  let id = "";
+  const short = url.match(/youtu\.be\/([a-zA-Z0-9_-]+)/);
+  const long = url.match(/[?&]v=([a-zA-Z0-9_-]+)/);
+  const embed = url.match(/embed\/([a-zA-Z0-9_-]+)/);
+  if (short) id = short[1];
+  else if (long) id = long[1];
+  else if (embed) id = embed[1];
+  return `https://www.youtube.com/embed/${id}?rel=0&modestbranding=1`;
+}
+
+function toVimeoEmbed(url) {
+  const m = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  return m ? `https://player.vimeo.com/video/${m[1]}` : url;
+}
+
+function toGDriveEmbed(url) {
+  const m = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
+  return m ? `https://drive.google.com/file/d/${m[1]}/preview` : url;
+}
+
+function renderPlayer(container, embedUrl, opts = {}) {
+  const type = detectEmbedType(embedUrl);
+  container.innerHTML = "";
+  container.classList.add("player-wrap");
+
+  if (type === "mp4") {
+    const video = document.createElement("video");
+    video.src = embedUrl;
+    video.controls = true;
+    video.playsInline = true;
+    video.autoplay = !!opts.autoplay;
+    video.className = "nokt-video-el";
+    if (opts.resumeAt) video.currentTime = opts.resumeAt;
+    container.appendChild(video);
+    return video;
+  }
+
+  let src = embedUrl;
+  if (type === "youtube") src = toYoutubeEmbed(embedUrl);
+  if (type === "vimeo") src = toVimeoEmbed(embedUrl);
+  if (type === "gdrive") src = toGDriveEmbed(embedUrl);
+  if (opts.autoplay) src += src.includes("?") ? "&autoplay=1" : "?autoplay=1";
+
+  const iframe = document.createElement("iframe");
+  iframe.src = src;
+  iframe.className = "nokt-iframe-el";
+  iframe.loading = "lazy";
+  iframe.allowFullscreen = true;
+  // Dikunci: hanya izinkan skrip player berjalan, TANPA izin membuka tab
+  // baru/mengalihkan halaman induk -- menutup celah redirect/popunder.
+  iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen";
+  container.appendChild(iframe);
+  return iframe;
+}
+
+function trackResumePosition(el, onTick) {
+  if (!el) return;
+
+  if (el.tagName === "VIDEO") {
+    el.addEventListener("timeupdate", () => {
+      onTick(Math.floor(el.currentTime));
+    });
+    return;
+  }
+
+  if (el.tagName === "IFRAME") {
+    let elapsed = 0;
+    const TICK_MS = 1000;
+    const timer = setInterval(() => {
+      if (document.hidden || !document.body.contains(el)) return;
+      elapsed += 1;
+      onTick(elapsed);
+    }, TICK_MS);
+    const cleanup = () => clearInterval(timer);
+    window.addEventListener("beforeunload", cleanup);
+    el._noktTrackCleanup = cleanup;
+    return;
+  }
+}
 
 // ---------- FIX: header komentar "macet"/ketutup navbar ----------
 function updateSiteHeaderHeightVar() {
@@ -22,58 +117,6 @@ window.addEventListener("resize", updateSiteHeaderHeightVar);
 window.addEventListener("orientationchange", () => setTimeout(updateSiteHeaderHeightVar, 150));
 if (document.fonts && document.fonts.ready) {
   document.fonts.ready.then(updateSiteHeaderHeightVar);
-}
-
-// ---------- Domain override per-host (antisipasi host ganti domain) ----------
-// Dipakai supaya kalau satu provider (mis. Vidara) tiba-tiba pindah domain,
-// admin cukup isi "Domain Pengganti" di Dashboard -> Pengaturan -> Daftar
-// Host Video, TANPA perlu edit video satu-satu. Link asli di Firestore
-// tidak diubah -- domain-nya cuma "dibelokkan" pas mau ditampilkan di
-// player, dan hanya untuk video yang link-nya cocok pola domain host itu
-// (host lain yang domain-nya belum berubah tidak ikut terpengaruh).
-let hostProfilesCache = null;
-async function getVideoHostProfiles() {
-  if (hostProfilesCache) return hostProfilesCache;
-  try {
-    const snap = await getDoc(doc(db, "settings", "site"));
-    const s = snap.exists() ? snap.data() : {};
-    hostProfilesCache = Array.isArray(s.videoHostProfiles) ? s.videoHostProfiles : [];
-  } catch (e) {
-    hostProfilesCache = [];
-  }
-  return hostProfilesCache;
-}
-
-function findMatchingHostProfile(embedUrl, profiles) {
-  if (!embedUrl || !Array.isArray(profiles)) return null;
-  return profiles.find(p => {
-    if (!p.domainPattern) return false;
-    try { return new RegExp(p.domainPattern, "i").test(embedUrl); }
-    catch (e) { return false; }
-  }) || null;
-}
-
-function swapDomainInUrl(url, newDomain) {
-  try {
-    const u = new URL(url);
-    let target = newDomain.trim();
-    if (!/^https?:\/\//i.test(target)) target = "https://" + target;
-    const nu = new URL(target);
-    u.protocol = nu.protocol;
-    u.host = nu.host; // path/kode video di belakangnya tetap sama persis
-    return u.toString();
-  } catch (e) {
-    return url; // bukan URL biasa (mis. cuma kode tanpa domain) -> biarkan apa adanya
-  }
-}
-
-async function resolveEmbedUrl(embedUrl) {
-  const profiles = await getVideoHostProfiles();
-  const profile = findMatchingHostProfile(embedUrl, profiles);
-  if (profile && profile.replacementDomain) {
-    return swapDomainInUrl(embedUrl, profile.replacementDomain);
-  }
-  return embedUrl;
 }
 
 const params = new URLSearchParams(window.location.search);
@@ -126,7 +169,7 @@ async function loadVideo() {
     return;
   }
   videoData = { id: snap.id, ...snap.data() };
-  await renderVideoInfo();
+  renderVideoInfo();
   updateCommentBoxState();
   listenVideoStats();
   await loadRelated();
@@ -134,7 +177,7 @@ async function loadVideo() {
   checkLikeState();
 }
 
-async function renderVideoInfo() {
+function renderVideoInfo() {
   const v = videoData;
   document.title = `${v.title} — NOKT HUB`;
   document.getElementById("page-title").textContent = `${v.title} — NOKT HUB`;
@@ -187,8 +230,7 @@ async function renderVideoInfo() {
   const resumeAt = currentUser ? null : parseInt(localStorage.getItem(resumeKey) || "0");
 
   const container = document.getElementById("player-container");
-  const resolvedEmbedUrl = await resolveEmbedUrl(v.embedUrl);
-  const el = renderPlayer(container, resolvedEmbedUrl, { resumeAt });
+  const el = renderPlayer(container, v.embedUrl, { resumeAt });
 
   trackResumePosition(el, (t) => {
     localStorage.setItem(resumeKey, t);
@@ -562,6 +604,12 @@ function renderReplyBox(parentId, mentionName) {
     </div>`;
 }
 
+// ---------- Avatar komentar ----------
+// Kalau komentar itu tidak punya userPhoto (data lama / user daftar via
+// email sebelum fitur avatar default ada), pakai salah satu dari 5 avatar
+// lokal kita, dipilih KONSISTEN berdasarkan uid pemilik komentar. Dipakai
+// baik di daftar komentar utama (renderComment) maupun di preview
+// komentar berputar di header (renderCommentPreview) -- lihat di bawah.
 function commentAvatarUrl(c) {
   return c.userPhoto || getAvatarForUid(c.uid || "anon");
 }
