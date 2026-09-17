@@ -387,6 +387,6 @@ body.comment-focus-active #comments-heading{
    Tidak ada media query desktop yang menimpa .section di file ini,
    jadi 3 aturan ID ini otomatis konsisten di mobile, tablet, dan desktop.
    ============================================================ */
-#section-latest{ padding-bottom:10px; }
-#section-popular{ padding-top:10px; padding-bottom:10px; }
-#section-trending-tags{ padding-top:10px; }
+#section-latest{ padding-bottom:0px; }
+#section-popular{ padding-top:0px; padding-bottom:0px; }
+#section-trending-tags{ padding-top:0px; }
