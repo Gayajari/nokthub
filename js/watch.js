@@ -23,58 +23,6 @@ if (document.fonts && document.fonts.ready) {
   document.fonts.ready.then(updateSiteHeaderHeightVar);
 }
 
-// ---------- Domain override per-host (antisipasi host ganti domain) ----------
-// Dipakai supaya kalau satu provider (mis. Vidara) tiba-tiba pindah domain,
-// admin cukup isi "Domain Pengganti" di Dashboard -> Pengaturan -> Daftar
-// Host Video, TANPA perlu edit video satu-satu. Link asli di Firestore
-// tidak diubah -- domain-nya cuma "dibelokkan" pas mau ditampilkan di
-// player, dan hanya untuk video yang link-nya cocok pola domain host itu
-// (host lain yang domain-nya belum berubah tidak ikut terpengaruh).
-let hostProfilesCache = null;
-async function getVideoHostProfiles() {
-  if (hostProfilesCache) return hostProfilesCache;
-  try {
-    const snap = await getDoc(doc(db, "settings", "site"));
-    const s = snap.exists() ? snap.data() : {};
-    hostProfilesCache = Array.isArray(s.videoHostProfiles) ? s.videoHostProfiles : [];
-  } catch (e) {
-    hostProfilesCache = [];
-  }
-  return hostProfilesCache;
-}
-
-function findMatchingHostProfile(embedUrl, profiles) {
-  if (!embedUrl || !Array.isArray(profiles)) return null;
-  return profiles.find(p => {
-    if (!p.domainPattern) return false;
-    try { return new RegExp(p.domainPattern, "i").test(embedUrl); }
-    catch (e) { return false; }
-  }) || null;
-}
-
-function swapDomainInUrl(url, newDomain) {
-  try {
-    const u = new URL(url);
-    let target = newDomain.trim();
-    if (!/^https?:\/\//i.test(target)) target = "https://" + target;
-    const nu = new URL(target);
-    u.protocol = nu.protocol;
-    u.host = nu.host; // path/kode video di belakangnya tetap sama persis
-    return u.toString();
-  } catch (e) {
-    return url; // bukan URL biasa (mis. cuma kode tanpa domain) -> biarkan apa adanya
-  }
-}
-
-async function resolveEmbedUrl(embedUrl) {
-  const profiles = await getVideoHostProfiles();
-  const profile = findMatchingHostProfile(embedUrl, profiles);
-  if (profile && profile.replacementDomain) {
-    return swapDomainInUrl(embedUrl, profile.replacementDomain);
-  }
-  return embedUrl;
-}
-
 const params = new URLSearchParams(window.location.search);
 const videoId = params.get("id");
 let currentUser = null;
@@ -125,7 +73,7 @@ async function loadVideo() {
     return;
   }
   videoData = { id: snap.id, ...snap.data() };
-  await renderVideoInfo();
+  renderVideoInfo();
   updateCommentBoxState();
   listenVideoStats();
   await loadRelated();
@@ -133,7 +81,7 @@ async function loadVideo() {
   checkLikeState();
 }
 
-async function renderVideoInfo() {
+function renderVideoInfo() {
   const v = videoData;
   document.title = `${v.title} — NOKT HUB`;
   document.getElementById("page-title").textContent = `${v.title} — NOKT HUB`;
@@ -186,8 +134,7 @@ async function renderVideoInfo() {
   const resumeAt = currentUser ? null : parseInt(localStorage.getItem(resumeKey) || "0");
 
   const container = document.getElementById("player-container");
-  const resolvedEmbedUrl = await resolveEmbedUrl(v.embedUrl);
-  const el = renderPlayer(container, resolvedEmbedUrl, { resumeAt });
+  const el = renderPlayer(container, v.embedUrl, { resumeAt });
 
   trackResumePosition(el, (t) => {
     localStorage.setItem(resumeKey, t);
