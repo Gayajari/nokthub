@@ -8,6 +8,14 @@
 //   - listing.js     (listing generik: category/tag/search/latest/popular)
 // Digabung supaya lebih sedikit file yang perlu dibuka-tutup saat
 // maintenance -- fungsinya PERSIS SAMA seperti sebelumnya.
+//
+// FIX: fitur "Domain Pengganti" per host (Pengaturan -> Daftar Host
+// Video di admin.js) sempat HILANG saat penggabungan file ini --
+// datanya (domainPattern + replacementDomain) tersimpan di Firestore
+// dan formnya ada di admin.js, tapi tidak ada kode manapun yang
+// benar-benar membaca data itu untuk mengganti domain video saat
+// diputar. Ditambahkan lagi di bagian "DOMAIN OVERRIDE PER HOST" di
+// bawah, dan dipakai oleh watch.js saat memutar video.
 // ============================================================
 import {
   db, collection, query, where, orderBy, limit, getDocs, doc, getDoc,
@@ -41,6 +49,49 @@ function applyCachedSiteSettings() {
     siteSettings = cached;
     applySiteSettings();
   }
+}
+
+// ============================================================
+// DOMAIN OVERRIDE PER HOST
+// Dipakai saat video akan DIPUTAR (lihat watch.js). Kalau host video
+// baru saja pindah domain, admin cukup isi "Domain Pengganti" di
+// Pengaturan -> Daftar Host Video -- video yang embedUrl-nya cocok
+// "Pola Domain (regex)" milik host itu otomatis diputar lewat domain
+// pengganti. Link ASLI di database TIDAK diubah, override ini hanya
+// terjadi di sisi player (di memori, saat halaman watch dibuka).
+// ============================================================
+
+// Supaya halaman lain (mis. watch.js) bisa menunggu siteSettings siap
+// tanpa perlu tahu detail loadSiteSettings()/cache di atas. Kalau
+// applyCachedSiteSettings() dari DOMContentLoaded di file ini belum
+// sempat jalan duluan, fungsi ini yang akan mengambil datanya sendiri.
+let siteSettingsReadyPromise = null;
+function ensureSiteSettingsLoaded() {
+  if (!siteSettingsReadyPromise) {
+    siteSettingsReadyPromise = Object.keys(siteSettings).length
+      ? Promise.resolve()
+      : loadSiteSettings();
+  }
+  return siteSettingsReadyPromise;
+}
+
+function applyDomainOverride(embedUrl) {
+  if (!embedUrl) return embedUrl;
+  const profiles = Array.isArray(siteSettings.videoHostProfiles) ? siteSettings.videoHostProfiles : [];
+  for (const p of profiles) {
+    if (!p.domainPattern || !p.replacementDomain) continue;
+    try {
+      const re = new RegExp(p.domainPattern, "i");
+      if (re.test(embedUrl)) {
+        // Ganti hanya bagian protokol+host di depan URL, sisanya
+        // (path, query, dll) tetap dipertahankan apa adanya.
+        return embedUrl.replace(/^(https?:\/\/)([^/]+)/i, (match, proto) => `${proto}${p.replacementDomain}`);
+      }
+    } catch (e) {
+      // Pola regex tidak valid -- lewati host ini, coba host berikutnya.
+    }
+  }
+  return embedUrl;
 }
 
 function applySiteSettings() {
@@ -575,4 +626,8 @@ async function initPopularListing() {
   renderListingPage();
 }
 
-export { computePopularScore, renderVideoCard, escapeHtml, PAGE_SIZE, buildThumbChain, initCategoryListing, initTagListing, initSearchListing, initLatestListing, initPopularListing };
+export {
+  computePopularScore, renderVideoCard, escapeHtml, PAGE_SIZE, buildThumbChain,
+  initCategoryListing, initTagListing, initSearchListing, initLatestListing, initPopularListing,
+  ensureSiteSettingsLoaded, applyDomainOverride
+};
