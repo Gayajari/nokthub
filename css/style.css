@@ -377,3 +377,16 @@ body.comment-focus-active #comments-heading{
   left:0;
   z-index:5;
 }
+
+/* ============================================================
+   NOKT HUB — Rapatkan jarak KHUSUS di homepage:
+   (1) Native Banner di akhir section Video Terbaru -> judul "Video Populer"
+   (2) Native Banner di akhir section Video Populer -> judul "Trending Tag"
+   Sengaja pakai ID (bukan mengubah .section) supaya section lain
+   (Trending Kategori, dst) dan SEMUA halaman lain TIDAK ikut berubah.
+   Tidak ada media query desktop yang menimpa .section di file ini,
+   jadi 3 aturan ID ini otomatis konsisten di mobile, tablet, dan desktop.
+   ============================================================ */
+#section-latest{ padding-bottom:10px; }
+#section-popular{ padding-top:10px; padding-bottom:10px; }
+#section-trending-tags{ padding-top:10px; }
