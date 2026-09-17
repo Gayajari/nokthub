@@ -133,16 +133,32 @@ function applySiteSettings() {
   }
 }
 
-function listenVideos(onUpdate) {
+// PENYEMPURNAAN (hemat kuota Firestore): sebelumnya query ini AMBIL SEMUA
+// video "publish" tanpa batas via onSnapshot (listener realtime) -- kalau
+// video sudah ratusan/ribuan, 1 kunjungan home bisa kena ratusan/ribuan
+// reads sekaligus, padahal yang ditampilkan di home cuma sebagian kecil
+// (hero 5, latest 8, popular 8, trending tag/kategori dihitung dari situ
+// juga). Sekarang:
+//  1. Dibatasi limit() -- ambil video TERBARU secukupnya saja (cukup buat
+//     hero/latest/popular/trending tetap akurat untuk konten yang relevan).
+//  2. Diganti dari onSnapshot (listener realtime, tetap "mendengarkan"
+//     terus selama halaman terbuka) jadi getDocs (ambil sekali saja).
+//     Home page tidak butuh update instan detik itu juga -- pengunjung
+//     baru akan lihat video/like terbaru begitu mereka buka/refresh
+//     halaman, itu sudah cukup wajar (sama seperti kebanyakan situs
+//     video lain).
+const HOME_FETCH_LIMIT = 150;
+
+async function listenVideos(onUpdate) {
   const q = query(
     collection(db, "videos"),
     where("status", "==", "publish"),
-    orderBy("uploadedAt", "desc")
+    orderBy("uploadedAt", "desc"),
+    limit(HOME_FETCH_LIMIT)
   );
-  return onSnapshot(q, (snap) => {
-    allPublishedVideos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    onUpdate(allPublishedVideos);
-  });
+  const snap = await getDocs(q);
+  allPublishedVideos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  onUpdate(allPublishedVideos);
 }
 
 function computePopularScore(v) {
@@ -528,8 +544,22 @@ function renderListingPagination() {
   }
 }
 
+// PENYEMPURNAAN (hemat kuota Firestore): sebelumnya fungsi ini AMBIL SEMUA
+// video "publish" tanpa batas -- dipanggil di SETIAP halaman listing
+// (kategori, tag, search, terbaru, populer), termasuk untuk kategori yang
+// isinya cuma beberapa video, tetap membaca SELURUH video di database dulu
+// baru difilter di sisi browser. Sekarang dibatasi limit() supaya jumlah
+// reads per kunjungan tidak ikut membengkak tanpa batas seiring makin
+// banyak video ditambahkan ke situs.
+const LISTING_FETCH_LIMIT = 300;
+
 async function fetchAllPublishedForListing() {
-  const q = query(collection(db, "videos"), where("status", "==", "publish"), orderBy("uploadedAt", "desc"));
+  const q = query(
+    collection(db, "videos"),
+    where("status", "==", "publish"),
+    orderBy("uploadedAt", "desc"),
+    limit(LISTING_FETCH_LIMIT)
+  );
   const snap = await getDocs(q);
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
