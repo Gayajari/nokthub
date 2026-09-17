@@ -7,6 +7,15 @@ const AD_UNITS = {
   native: { containerId: "container-3b1b55ee4183e6526d08a0c286844beb", src: "https://inputoppose.com/3b1b55ee4183e6526d08a0c286844beb/invoke.js" }
 };
 
+// PENYEMPURNAAN: iklan Native Banner sebelumnya kepotong -- iframe-nya
+// dikasih heightCss kosong (""), jadi browser pakai tinggi default iframe
+// yang jauh lebih pendek dari tinggi banner aslinya (banner Native
+// biasanya beberapa ratus px tinggi, isinya gambar promosi lengkap).
+// Sekarang wadah Native Banner dikasih tinggi minimum yang cukup lega
+// (NATIVE_MIN_HEIGHT) supaya seluruh isi iklan kelihatan penuh, tidak
+// terpotong di tengah.
+const NATIVE_MIN_HEIGHT = 320; // px -- cukup untuk banner promosi utuh
+
 function buildBannerSrcdoc(unit) {
   return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;overflow:hidden;background:transparent;}</style></head>
   <body>
@@ -36,14 +45,24 @@ function mountAdIframe(container, srcdocHtml, widthCss, heightCss) {
 export function renderBanner300x250(containerId) {
   mountAdIframe(document.getElementById(containerId), buildBannerSrcdoc(AD_UNITS.banner300x250), "300px", "250px");
 }
+
 export function renderNativeBanner(containerId) {
   const el = document.getElementById(containerId);
-  mountAdIframe(el, buildNativeSrcdoc(AD_UNITS.native), "100%", "");
+  if (!el) return;
+  // FIX kepotong: wadah luar dikasih tinggi minimum tetap (bukan lagi
+  // kosong), iframe di dalamnya mengisi penuh 100% tinggi wadah itu --
+  // jadi seluruh isi banner (yang biasanya cukup tinggi) tidak lagi
+  // terpotong di tengah gambar.
+  el.style.minHeight = NATIVE_MIN_HEIGHT + "px";
+  mountAdIframe(el, buildNativeSrcdoc(AD_UNITS.native), "100%", "100%");
 }
 
-// Sticky banner 320x50 di bawah layar (mobile), bisa ditutup pengunjung
+// Sticky banner 320x50 di bawah layar -- SEKARANG tampil di semua ukuran
+// layar (mobile MAUPUN desktop), bisa ditutup pengunjung kapan saja lewat
+// tombol X. Sebelumnya ada baris `if (window.innerWidth > 768) return;`
+// yang sengaja menyembunyikan banner ini kalau dibuka dari desktop --
+// baris itu sudah dihapus.
 export function mountStickyMobileBanner() {
-  if (window.innerWidth > 768) return;
   if (document.getElementById("nokt-sticky-ad")) return;
   const bar = document.createElement("div");
   bar.id = "nokt-sticky-ad";
@@ -61,8 +80,8 @@ export function mountStickyMobileBanner() {
 }
 
 // Sisip Native Banner otomatis tiap N video di dalam grid — "mengintai" grid
-// pakai MutationObserver, jadi TIDAK PERLU ubah app.js/listing.js/watch.js
-// sama sekali. Aman berdampingan dengan render video yang sudah ada.
+// pakai MutationObserver, jadi TIDAK PERLU ubah site.js/watch.js sama sekali.
+// Aman berdampingan dengan render video yang sudah ada.
 export function injectGridAds(gridSelector, interval = 8) {
   const grid = document.querySelector(gridSelector);
   if (!grid) return;
@@ -78,7 +97,12 @@ export function injectGridAds(gridSelector, interval = 8) {
           const slot = document.createElement("div");
           slot.className = "nokt-ad-slot";
           slot.id = slotId;
-          slot.style.cssText = "grid-column:1 / -1;margin:6px 0;";
+          // FIX kepotong: grid-column tetap full-width, TAPI sekarang
+          // dikasih tinggi minimum juga di level slot -- supaya ruang
+          // sudah tersedia SEBELUM renderNativeBanner() sempat mengisi
+          // iframe-nya (mencegah "lompatan" tinggi mendadak saat iklan
+          // baru selesai dimuat).
+          slot.style.cssText = `grid-column:1 / -1;margin:6px 0;min-height:${NATIVE_MIN_HEIGHT}px;`;
           card.after(slot);
           renderNativeBanner(slotId);
         }
