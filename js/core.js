@@ -81,11 +81,11 @@ export {
 // ---------- 2. AUTHENTICATION ----------
 
 export const DEFAULT_AVATARS = [
-  "avatar1.webp",
-  "avatar2.webp",
-  "avatar3.webp",
-  "avatar4.webp",
-  "avatar5.webp",
+  "assets/avatars/avatar1.webp",
+  "assets/avatars/avatar2.webp",
+  "assets/avatars/avatar3.webp",
+  "assets/avatars/avatar4.webp",
+  "assets/avatars/avatar5.webp",
 ];
 
 // Pilih avatar SECARA KONSISTEN berdasarkan uid -- 1 user akan selalu
