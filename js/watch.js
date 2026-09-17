@@ -6,7 +6,10 @@ import {
   deleteDoc, query, where, orderBy, limit, increment, serverTimestamp,
   onAuthStateChanged, onSnapshot, getAvatarForUid, DEFAULT_AVATARS
 } from "./core.js";
-import { escapeHtml, renderVideoCard, computePopularScore, buildThumbChain } from "./site.js";
+import {
+  escapeHtml, renderVideoCard, computePopularScore, buildThumbChain,
+  ensureSiteSettingsLoaded, applyDomainOverride
+} from "./site.js";
 
 
 // ============================================================
@@ -163,7 +166,11 @@ function refreshSendButtonState() {
 async function loadVideo() {
   if (!videoId) return;
   const ref = doc(db, "videos", videoId);
-  const snap = await getDoc(ref);
+  // FIX: tunggu siteSettings (berisi videoHostProfiles/domain override)
+  // siap BARENGAN dengan pengambilan data video, supaya applyDomainOverride()
+  // di renderVideoInfo() sudah punya data lengkap saat dipanggil, tanpa
+  // menambah waktu tunggu ekstra (kedua fetch jalan paralel).
+  const [snap] = await Promise.all([getDoc(ref), ensureSiteSettingsLoaded()]);
   if (!snap.exists()) {
     document.getElementById("video-title").textContent = "Video tidak ditemukan";
     return;
@@ -230,7 +237,12 @@ function renderVideoInfo() {
   const resumeAt = currentUser ? null : parseInt(localStorage.getItem(resumeKey) || "0");
 
   const container = document.getElementById("player-container");
-  const el = renderPlayer(container, v.embedUrl, { resumeAt });
+  // FIX: domain override per host -- kalau host video ini baru pindah
+  // domain (diatur admin di Pengaturan -> Daftar Host Video), link yang
+  // benar-benar diputar diganti ke domain pengganti di sini. Link ASLI
+  // di database (v.embedUrl) TIDAK diubah/disentuh.
+  const playableUrl = applyDomainOverride(v.embedUrl);
+  const el = renderPlayer(container, playableUrl, { resumeAt });
 
   trackResumePosition(el, (t) => {
     localStorage.setItem(resumeKey, t);
