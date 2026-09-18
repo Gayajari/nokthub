@@ -42,6 +42,14 @@ function buildNativeSrcdoc(unit, token) {
         // kalau sudah 5 detik belum stabil juga (jaga-jaga). Tetap
         // dilaporkan cuma SEKALI -- supaya tidak memicu loop "iframe
         // membesar -> iklan nambah kartu" seperti kemarin.
+        //
+        // FIX: scrollHeight kadang tidak menghitung margin/padding paling
+        // bawah dari elemen terakhir (judul iklan), dan teks bisa sedikit
+        // berubah tinggi begitu web font selesai dimuat -- dua hal ini
+        // bikin bagian bawah kepotong tipis. Makanya sebelum mulai ukur,
+        // ditunggu dulu font-nya selesai load, dan hasil akhirnya dikasih
+        // buffer kecil supaya tidak mepet.
+        var HEIGHT_BUFFER = 14;
         var reported = false;
         var lastHeight = -1;
         var stableCount = 0;
@@ -55,13 +63,18 @@ function buildNativeSrcdoc(unit, token) {
           if (stableCount >= 2 || checks >= maxChecks) {
             reported = true;
             try {
-              parent.postMessage({ noktAdHeight: true, token: "${token}", height: h }, "*");
+              parent.postMessage({ noktAdHeight: true, token: "${token}", height: h + HEIGHT_BUFFER }, "*");
             } catch(e) {}
             return;
           }
           setTimeout(check, 250);
         }
-        setTimeout(check, 250);
+        function startChecking(){ setTimeout(check, 250); }
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(startChecking).catch(startChecking);
+        } else {
+          startChecking();
+        }
       })();
     <\/script>
   </body></html>`;
