@@ -23,11 +23,18 @@ function buildBannerSrcdoc(unit) {
   </body></html>`;
 }
 
-// Bangun srcdoc native banner: sisakan 1 kartu iklan pertama yang
-// beneran punya gambar (bukan tracking pixel), sembunyikan kartu
-// lain, lalu ukur tinggi kartu itu dan lapor ke parent lewat
-// postMessage -- sekali saja, supaya tidak memicu iklan menambah
-// kartu baru.
+// Bangun srcdoc native banner: ukur tinggi konten sekali (setelah font
+// selesai load dan hasilnya stabil), lalu lapor ke parent lewat
+// postMessage -- sekali saja, tidak pernah diulang, supaya tidak
+// memicu iklan menambah kartu baru.
+//
+// CATATAN: jumlah kartu yang tampil (1 vs beberapa) itu sebenarnya
+// ditentukan dari sisi Adsterra sendiri -- saat generate kode Native
+// Banner di dashboard mereka, ada opsi "Quantity" untuk jumlah kartu.
+// Kode `key`/`src` yang dipakai sekarang kemungkinan di-generate dengan
+// quantity > 1. Cara paling pasti untuk selalu dapat 1 kartu: generate
+// ulang kode Native Banner di dashboard Adsterra dengan Quantity = 1,
+// lalu ganti nilai AD_UNITS.native di bawah dengan key/src yang baru.
 function buildNativeSrcdoc(unit, token) {
   return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;background:transparent;overflow:hidden;}</style></head>
   <body>
@@ -37,63 +44,25 @@ function buildNativeSrcdoc(unit, token) {
       (function(){
         var HEIGHT_BUFFER = 28;
         var reported = false;
-        var keptAnchor = null;
-
-        function reportHeight(h){
+        var lastHeight = -1;
+        var stableCount = 0;
+        var checks = 0;
+        var maxChecks = 24;
+        function check(){
           if (reported) return;
-          reported = true;
-          try { parent.postMessage({ noktAdHeight: true, token: "${token}", height: h }, "*"); } catch(e) {}
-        }
-
-        // Kartu iklan asli hampir selalu berupa <a> yang membungkus
-        // <img> dengan ukuran nyata (bukan pixel pelacak 1x1). Filter
-        // ketat ini yang bikin heuristik sebelumnya gagal -- kemarin
-        // asal cari "elemen dengan tag anak sama", jadi kadang kena
-        // elemen pelacak/wrapper yang salah dan malah menghilangkan
-        // kartu asli.
-        function findRealAdAnchors(root){
-          var anchors = Array.prototype.slice.call(root.querySelectorAll("a"));
-          return anchors.filter(function(a){
-            var img = a.querySelector("img");
-            return img && img.complete && img.naturalWidth > 0 &&
-                   img.offsetWidth > 20 && img.offsetHeight > 20;
-          });
-        }
-
-        function enforceSingleAnchor(root){
-          var anchors = findRealAdAnchors(root);
-          if (!anchors.length) return false;
-          if (!keptAnchor) keptAnchor = anchors[0];
-          anchors.forEach(function(a){
-            if (a !== keptAnchor) a.style.display = "none";
-          });
-          return true;
-        }
-
-        var attempts = 0;
-        var maxAttempts = 24; // ~6 detik maksimum tunggu
-
-        function tick(){
-          if (reported) return;
-          attempts++;
-          var container = document.getElementById("${unit.containerId}");
-          var found = container && enforceSingleAnchor(container);
-
-          if (found || attempts >= maxAttempts) {
-            if (container) {
-              // Pantau terus kalau ada kartu baru muncul belakangan
-              // (lazy/async) -- langsung disembunyikan, tidak pernah
-              // memicu resize apa pun, jadi aman dari loop.
-              new MutationObserver(function(){ enforceSingleAnchor(container); })
-                .observe(container, { childList: true, subtree: true });
-            }
-            reportHeight(document.body.scrollHeight + HEIGHT_BUFFER);
+          checks++;
+          var h = document.body.scrollHeight;
+          if (h === lastHeight) { stableCount++; } else { stableCount = 0; lastHeight = h; }
+          if (stableCount >= 3 || checks >= maxChecks) {
+            reported = true;
+            try {
+              parent.postMessage({ noktAdHeight: true, token: "${token}", height: h + HEIGHT_BUFFER }, "*");
+            } catch(e) {}
             return;
           }
-          setTimeout(tick, 250);
+          setTimeout(check, 250);
         }
-
-        function startChecking(){ setTimeout(tick, 250); }
+        function startChecking(){ setTimeout(check, 250); }
         if (document.fonts && document.fonts.ready) {
           document.fonts.ready.then(startChecking).catch(startChecking);
         } else {
