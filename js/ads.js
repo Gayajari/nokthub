@@ -23,11 +23,9 @@ function buildBannerSrcdoc(unit) {
   </body></html>`;
 }
 
-// FIX: sebelumnya overflow:hidden di sini membuat konten native ad yang
-// lebih tinggi dari iframe langsung terpotong. Sekarang overflow:visible,
-// dan ditambah script kecil yang melapor tinggi konten asli ke parent
-// lewat postMessage supaya iframe di halaman utama bisa menyesuaikan
-// tingginya secara otomatis (bukan dipaksa 150px default).
+// Bangun srcdoc native banner: hanya menampilkan 1 kartu iklan (kartu
+// ke-2 dst di dalam widget disembunyikan lewat script di bawah), lalu
+// melapor tinggi kartu pertama ke parent lewat postMessage.
 function buildNativeSrcdoc(unit, token) {
   return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;background:transparent;overflow:hidden;}</style></head>
   <body>
@@ -35,45 +33,90 @@ function buildNativeSrcdoc(unit, token) {
     <script async data-cfasync="false" src="${unit.src}"><\/script>
     <script>
       (function(){
-        // Ukur tinggi konten SEKALI, tapi waktunya adaptif: dicek tiap
-        // 250ms, baru dianggap "selesai" dan dilaporkan sekali kalau
-        // tingginya sama 2x cek berturut-turut (artinya gambar & judul
-        // iklan sudah selesai render, tidak akan berubah lagi), atau
-        // kalau sudah 5 detik belum stabil juga (jaga-jaga). Tetap
-        // dilaporkan cuma SEKALI -- supaya tidak memicu loop "iframe
-        // membesar -> iklan nambah kartu" seperti kemarin.
+        // Widget native ini bisa berisi BEBERAPA kartu sekaligus di dalam
+        // DOM-nya (bukan cuma 1 kartu yang "nambah sendiri" kalau diberi
+        // ruang lebih). Makanya sekadar resize iframe ke total tinggi
+        // konten tidak pernah pas -- kalau dikecilkan, kartu pertama
+        // kepotong; kalau dibesarkan, kartu ke-2/3/4 ikut kelihatan.
         //
-        // FIX: scrollHeight kadang tidak menghitung margin/padding paling
-        // bawah dari elemen terakhir (judul iklan), dan teks bisa sedikit
-        // berubah tinggi begitu web font selesai dimuat -- dua hal ini
-        // bikin bagian bawah kepotong tipis. Makanya sebelum mulai ukur,
-        // ditunggu dulu font-nya selesai load, dan hasil akhirnya dikasih
-        // buffer kecil supaya tidak mepet.
+        // Jadi caranya: cari elemen pembungkus yang berisi beberapa
+        // child dengan tag sama (indikasi daftar kartu berulang), lalu
+        // SEMBUNYIKAN semua child selain yang pertama -- termasuk yang
+        // baru muncul belakangan (dipantau terus lewat MutationObserver,
+        // tapi ini AMAN dari loop resize karena kita tidak pernah
+        // membesarkan iframe sebagai respons, cuma menyembunyikan). Baru
+        // setelah itu tinggi kartu pertama diukur & dilaporkan SEKALI.
         var HEIGHT_BUFFER = 14;
         var reported = false;
-        var lastHeight = -1;
-        var stableCount = 0;
-        var checks = 0;
-        var maxChecks = 20;
-        function check(){
+
+        function reportHeight(h){
           if (reported) return;
-          checks++;
-          var h = document.body.scrollHeight;
-          if (h === lastHeight) { stableCount++; } else { stableCount = 0; lastHeight = h; }
-          if (stableCount >= 2 || checks >= maxChecks) {
-            reported = true;
-            try {
-              parent.postMessage({ noktAdHeight: true, token: "${token}", height: h + HEIGHT_BUFFER }, "*");
-            } catch(e) {}
+          reported = true;
+          try { parent.postMessage({ noktAdHeight: true, token: "${token}", height: h }, "*"); } catch(e) {}
+        }
+
+        function findItemsWrapper(root, depth){
+          if (!root || depth > 6) return null;
+          var kids = Array.prototype.slice.call(root.children || []);
+          if (kids.length >= 2) {
+            var tag = kids[0].tagName;
+            var sameTag = kids.every(function(k){ return k.tagName === tag; });
+            if (sameTag) return root;
+          }
+          for (var i = 0; i < kids.length; i++){
+            var found = findItemsWrapper(kids[i], depth + 1);
+            if (found) return found;
+          }
+          return null;
+        }
+
+        function keepOnlyFirst(wrapper){
+          for (var i = 1; i < wrapper.children.length; i++){
+            wrapper.children[i].style.display = "none";
+          }
+        }
+
+        function imagesReady(scopeEl){
+          var imgs = scopeEl.querySelectorAll("img");
+          for (var i = 0; i < imgs.length; i++){
+            if (!imgs[i].complete || imgs[i].naturalWidth === 0) return false;
+          }
+          return true;
+        }
+
+        var attempts = 0;
+        var maxAttempts = 24; // ~6 detik maksimum tunggu
+
+        function tick(){
+          if (reported) return;
+          attempts++;
+          var container = document.getElementById("${unit.containerId}");
+          if (container) {
+            var wrapper = findItemsWrapper(container, 0);
+            if (wrapper && wrapper.children.length >= 1) {
+              keepOnlyFirst(wrapper);
+              var firstItem = wrapper.children[0];
+              if (imagesReady(firstItem) || attempts >= maxAttempts) {
+                // Kalau skrip iklan nambah kartu baru belakangan (async),
+                // langsung disembunyikan juga -- tanpa memicu resize apa pun.
+                new MutationObserver(function(){ keepOnlyFirst(wrapper); })
+                  .observe(wrapper, { childList: true });
+                reportHeight(document.body.scrollHeight + HEIGHT_BUFFER);
+                return;
+              }
+            }
+          }
+          if (attempts >= maxAttempts) {
+            reportHeight(document.body.scrollHeight + HEIGHT_BUFFER);
             return;
           }
-          setTimeout(check, 250);
+          setTimeout(tick, 250);
         }
-        function startChecking(){ setTimeout(check, 250); }
+
         if (document.fonts && document.fonts.ready) {
-          document.fonts.ready.then(startChecking).catch(startChecking);
+          document.fonts.ready.then(function(){ setTimeout(tick, 250); }).catch(function(){ setTimeout(tick, 250); });
         } else {
-          startChecking();
+          setTimeout(tick, 250);
         }
       })();
     <\/script>
