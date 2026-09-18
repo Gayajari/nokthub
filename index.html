@@ -72,7 +72,9 @@
   </div>
 
   <!-- Baris kategori: chip scroll-horizontal, dirender otomatis oleh
-       js/site.js dari koleksi Firestore "categories". -->
+       js/categories.js dari koleksi Firestore "categories". Diletakkan
+       sebagai baris terpisah (bukan sejajar search) supaya tidak sesak
+       di layar sempit / mobile. -->
   <div id="category-row" class="catnav-row"></div>
 </header>
 
@@ -82,7 +84,7 @@
 </section>
 
 <main class="container">
-  <section class="section" id="section-latest">
+  <section class="section">
     <div class="section-head">
       <div>
         <div class="eyebrow">Baru Diupload</div>
@@ -93,13 +95,7 @@
     <div id="latest-grid" class="video-grid"></div>
   </section>
 
-  <!-- Native Banner #1 -- posisi tetap, PERSIS di atas "Video Populer".
-       Ini slot statis (bukan disisip otomatis di tengah grid seperti
-       sebelumnya), jadi jumlah & posisinya presisi, tidak ikut berubah
-       tergantung berapa banyak video yang ditampilkan. -->
-  <div id="ad-native-1" style="margin:8px 0 20px"></div>
-
-  <section class="section" id="section-popular">
+  <section class="section">
     <div class="section-head">
       <div>
         <div class="eyebrow">Popular Score</div>
@@ -110,10 +106,7 @@
     <div id="popular-grid" class="video-grid"></div>
   </section>
 
-  <!-- Native Banner #2 -- posisi tetap, PERSIS di atas "Trending Tag". -->
-  <div id="ad-native-2" style="margin:8px 0 20px"></div>
-
-  <section class="section" id="section-trending-tags">
+  <section class="section">
     <div class="section-head"><h2>Trending Tag</h2></div>
     <div id="trending-tags"></div>
   </section>
@@ -144,21 +137,10 @@
 <script type="module" src="js/site.js"></script>
 
 <script type="module">
-  // FIX: sebelumnya pakai injectGridAds() 2x, yang nyisip iklan otomatis
-  // DI DALAM grid (#latest-grid, #popular-grid) tiap 8 video -- karena
-  // masing-masing grid memang persis berisi 8 video, ini memicu iklan
-  // muncul di kedua grid + sticky banner = 3 kemunculan sekaligus, dan
-  // posisinya "menyatu" ke dalam grid (bukan benar-benar di ATAS judul
-  // section berikutnya).
-  //
-  // Sekarang diganti jadi 2 slot Native Banner TETAP yang ditaruh
-  // langsung di HTML (lihat #ad-native-1 dan #ad-native-2 di atas) --
-  // persis di atas "Video Populer" dan di atas "Trending Tag". Jumlahnya
-  // pasti 2, tidak berubah-ubah ikut jumlah video yang tampil.
-  import { mountStickyMobileBanner, renderNativeBanner } from "./js/ads.js";
+  import { mountStickyMobileBanner, injectGridAds } from "./js/ads.js";
   mountStickyMobileBanner();
-  renderNativeBanner("ad-native-1");
-  renderNativeBanner("ad-native-2");
+  injectGridAds("#latest-grid", 8);
+  injectGridAds("#popular-grid", 8);
 </script>
 </body>
 </html>
