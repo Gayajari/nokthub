@@ -31,7 +31,7 @@ function buildBannerSrcdoc(unit) {
 // dalam iframe sendiri: kalau <=768px, kartu ke-2 dst disembunyikan
 // (dengan filter ketat: elemen <a> yang beneran punya <img> berukuran
 // nyata, bukan pixel pelacak); kalau desktop, dibiarkan tampil semua.
-function buildNativeSrcdoc(unit, token) {
+function buildNativeSrcdoc(unit, token, isMobile) {
   return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;background:transparent;overflow:hidden;}</style></head>
   <body>
     <div id="${unit.containerId}"></div>
@@ -39,7 +39,12 @@ function buildNativeSrcdoc(unit, token) {
     <script>
       (function(){
         var HEIGHT_BUFFER = 28;
-        var MOBILE_BREAKPOINT = 768;
+        // Lebar mobile/desktop ditentukan dari HALAMAN UTAMA (di luar
+        // iframe ini), bukan lebar iframe sendiri -- soalnya kalau kolom
+        // konten situs (misal .container) punya max-width sempit, lebar
+        // iframe ikut sempit walau dibuka di layar desktop lebar, jadi
+        // salah kedeteksi "mobile" terus.
+        var isMobile = ${isMobile ? "true" : "false"};
         var reported = false;
         var keptAnchor = null;
 
@@ -68,7 +73,6 @@ function buildNativeSrcdoc(unit, token) {
           return true;
         }
 
-        var isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
         var attempts = 0;
         var maxAttempts = 24; // ~6 detik maksimum tunggu
 
