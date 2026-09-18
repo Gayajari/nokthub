@@ -23,9 +23,10 @@ function buildBannerSrcdoc(unit) {
   </body></html>`;
 }
 
-// Bangun srcdoc native banner: hanya menampilkan 1 kartu iklan (kartu
-// ke-2 dst di dalam widget disembunyikan lewat script di bawah), lalu
-// melapor tinggi kartu pertama ke parent lewat postMessage.
+// Bangun srcdoc native banner: ukur tinggi konten sekali (setelah font
+// & gambar selesai render dan hasilnya stabil), lalu lapor ke parent
+// lewat postMessage supaya iframe di-resize pas -- sekali saja, tidak
+// pernah diulang, supaya tidak memicu iklan menambah kartu baru.
 function buildNativeSrcdoc(unit, token) {
   return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;background:transparent;overflow:hidden;}</style></head>
   <body>
@@ -33,90 +34,31 @@ function buildNativeSrcdoc(unit, token) {
     <script async data-cfasync="false" src="${unit.src}"><\/script>
     <script>
       (function(){
-        // Widget native ini bisa berisi BEBERAPA kartu sekaligus di dalam
-        // DOM-nya (bukan cuma 1 kartu yang "nambah sendiri" kalau diberi
-        // ruang lebih). Makanya sekadar resize iframe ke total tinggi
-        // konten tidak pernah pas -- kalau dikecilkan, kartu pertama
-        // kepotong; kalau dibesarkan, kartu ke-2/3/4 ikut kelihatan.
-        //
-        // Jadi caranya: cari elemen pembungkus yang berisi beberapa
-        // child dengan tag sama (indikasi daftar kartu berulang), lalu
-        // SEMBUNYIKAN semua child selain yang pertama -- termasuk yang
-        // baru muncul belakangan (dipantau terus lewat MutationObserver,
-        // tapi ini AMAN dari loop resize karena kita tidak pernah
-        // membesarkan iframe sebagai respons, cuma menyembunyikan). Baru
-        // setelah itu tinggi kartu pertama diukur & dilaporkan SEKALI.
-        var HEIGHT_BUFFER = 14;
+        var HEIGHT_BUFFER = 28;
         var reported = false;
-
-        function reportHeight(h){
+        var lastHeight = -1;
+        var stableCount = 0;
+        var checks = 0;
+        var maxChecks = 24;
+        function check(){
           if (reported) return;
-          reported = true;
-          try { parent.postMessage({ noktAdHeight: true, token: "${token}", height: h }, "*"); } catch(e) {}
-        }
-
-        function findItemsWrapper(root, depth){
-          if (!root || depth > 6) return null;
-          var kids = Array.prototype.slice.call(root.children || []);
-          if (kids.length >= 2) {
-            var tag = kids[0].tagName;
-            var sameTag = kids.every(function(k){ return k.tagName === tag; });
-            if (sameTag) return root;
-          }
-          for (var i = 0; i < kids.length; i++){
-            var found = findItemsWrapper(kids[i], depth + 1);
-            if (found) return found;
-          }
-          return null;
-        }
-
-        function keepOnlyFirst(wrapper){
-          for (var i = 1; i < wrapper.children.length; i++){
-            wrapper.children[i].style.display = "none";
-          }
-        }
-
-        function imagesReady(scopeEl){
-          var imgs = scopeEl.querySelectorAll("img");
-          for (var i = 0; i < imgs.length; i++){
-            if (!imgs[i].complete || imgs[i].naturalWidth === 0) return false;
-          }
-          return true;
-        }
-
-        var attempts = 0;
-        var maxAttempts = 24; // ~6 detik maksimum tunggu
-
-        function tick(){
-          if (reported) return;
-          attempts++;
-          var container = document.getElementById("${unit.containerId}");
-          if (container) {
-            var wrapper = findItemsWrapper(container, 0);
-            if (wrapper && wrapper.children.length >= 1) {
-              keepOnlyFirst(wrapper);
-              var firstItem = wrapper.children[0];
-              if (imagesReady(firstItem) || attempts >= maxAttempts) {
-                // Kalau skrip iklan nambah kartu baru belakangan (async),
-                // langsung disembunyikan juga -- tanpa memicu resize apa pun.
-                new MutationObserver(function(){ keepOnlyFirst(wrapper); })
-                  .observe(wrapper, { childList: true });
-                reportHeight(document.body.scrollHeight + HEIGHT_BUFFER);
-                return;
-              }
-            }
-          }
-          if (attempts >= maxAttempts) {
-            reportHeight(document.body.scrollHeight + HEIGHT_BUFFER);
+          checks++;
+          var h = document.body.scrollHeight;
+          if (h === lastHeight) { stableCount++; } else { stableCount = 0; lastHeight = h; }
+          if (stableCount >= 3 || checks >= maxChecks) {
+            reported = true;
+            try {
+              parent.postMessage({ noktAdHeight: true, token: "${token}", height: h + HEIGHT_BUFFER }, "*");
+            } catch(e) {}
             return;
           }
-          setTimeout(tick, 250);
+          setTimeout(check, 250);
         }
-
+        function startChecking(){ setTimeout(check, 250); }
         if (document.fonts && document.fonts.ready) {
-          document.fonts.ready.then(function(){ setTimeout(tick, 250); }).catch(function(){ setTimeout(tick, 250); });
+          document.fonts.ready.then(startChecking).catch(startChecking);
         } else {
-          setTimeout(tick, 250);
+          startChecking();
         }
       })();
     <\/script>
