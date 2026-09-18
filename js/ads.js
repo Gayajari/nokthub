@@ -10,8 +10,8 @@ const AD_UNITS = {
 // Batas tinggi aman untuk native banner supaya tidak "kepotong" dan
 // tidak juga bisa melar tak terbatas kalau ada iklan nakal.
 const NATIVE_MIN_HEIGHT = 90;
-const NATIVE_MAX_HEIGHT = 900;
-const NATIVE_DEFAULT_HEIGHT = 280; // tinggi awal sebelum ukuran asli diketahui
+const NATIVE_MAX_HEIGHT = 520;
+const NATIVE_DEFAULT_HEIGHT = 160; // tinggi awal sebelum ukuran asli diketahui -- sengaja kecil biar iklan tidak "diundang" nambah kartu kedua selagi masih loading
 
 let nativeAdSeq = 0;
 
@@ -35,26 +35,33 @@ function buildNativeSrcdoc(unit, token) {
     <script async data-cfasync="false" src="${unit.src}"><\/script>
     <script>
       (function(){
-        // PENTING: ukur tinggi konten HANYA SEKALI, lalu berhenti.
-        // Iklan native ini akan terus menambah kartu baru untuk mengisi
-        // ruang yang tersedia setiap kali iframe diperbesar -- kalau kita
-        // terus memantau & melaporkan tinggi (misal pakai ResizeObserver
-        // yang jalan terus), itu memicu loop: iframe membesar -> iklan
-        // nambah kartu -> body makin tinggi -> iframe dibesarkan lagi ->
-        // dst, sampai muncul banyak kartu sekaligus. Dengan sekali ukur
-        // di waktu yang cukup (setelah kartu pertama render tapi sebelum
-        // skrip iklan sempat mengisi kartu tambahan), ukurannya tetap pas
-        // untuk 1 kartu dan tidak pernah dipicu untuk membesar lagi.
+        // Ukur tinggi konten SEKALI, tapi waktunya adaptif: dicek tiap
+        // 250ms, baru dianggap "selesai" dan dilaporkan sekali kalau
+        // tingginya sama 2x cek berturut-turut (artinya gambar & judul
+        // iklan sudah selesai render, tidak akan berubah lagi), atau
+        // kalau sudah 5 detik belum stabil juga (jaga-jaga). Tetap
+        // dilaporkan cuma SEKALI -- supaya tidak memicu loop "iframe
+        // membesar -> iklan nambah kartu" seperti kemarin.
         var reported = false;
-        function reportHeightOnce(){
+        var lastHeight = -1;
+        var stableCount = 0;
+        var checks = 0;
+        var maxChecks = 20;
+        function check(){
           if (reported) return;
-          reported = true;
-          try {
-            var h = document.body.scrollHeight;
-            parent.postMessage({ noktAdHeight: true, token: "${token}", height: h }, "*");
-          } catch(e) {}
+          checks++;
+          var h = document.body.scrollHeight;
+          if (h === lastHeight) { stableCount++; } else { stableCount = 0; lastHeight = h; }
+          if (stableCount >= 2 || checks >= maxChecks) {
+            reported = true;
+            try {
+              parent.postMessage({ noktAdHeight: true, token: "${token}", height: h }, "*");
+            } catch(e) {}
+            return;
+          }
+          setTimeout(check, 250);
         }
-        setTimeout(reportHeightOnce, 600);
+        setTimeout(check, 250);
       })();
     <\/script>
   </body></html>`;
