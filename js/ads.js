@@ -8,7 +8,8 @@ const AD_UNITS = {
 };
 
 // Tinggi cadangan HANYA dipakai kalau tinggi asli iklan gagal terbaca
-// (mis. konten iklan gagal dimuat total).
+// (mis. konten iklan gagal dimuat total) -- bukan lagi tinggi tetap yang
+// selalu dipasang, biar tidak ada ruang kosong nganggur seperti sebelumnya.
 const NATIVE_FALLBACK_HEIGHT = 320; // px
 
 function buildBannerSrcdoc(unit) {
@@ -42,8 +43,15 @@ export function renderBanner300x250(containerId) {
   mountAdIframe(document.getElementById(containerId), buildBannerSrcdoc(AD_UNITS.banner300x250), "300px", "250px");
 }
 
-// Ukur tinggi ASLI konten iklan setelah dimuat, lalu pas-kan tinggi
-// kotaknya persis sebesar itu (bukan tinggi tetap yang cuma tebakan).
+// FIX jarak kosong di bawah iklan: sebelumnya kotak iklan dikasih tinggi
+// TETAP 320px, padahal tinggi asli materi iklan (yang bisa beda-beda tiap
+// tayang) sering lebih pendek dari itu -- sisanya jadi ruang kosong yang
+// kelihatan seperti "jarak" ke section berikutnya, padahal sebenarnya
+// kosongan di DALAM kotak iklan itu sendiri. Sekarang: ukur tinggi asli
+// konten iklan setelah dimuat (iframe pakai sandbox "allow-same-origin"
+// jadi boleh dibaca dari luar), lalu pas-kan tinggi kotaknya PERSIS
+// sebesar itu -- tidak lebih, tidak kurang. Fallback ke tinggi tetap
+// HANYA kalau gagal terbaca sama sekali (mis. iklan gagal tampil).
 export function renderNativeBanner(containerId) {
   const el = document.getElementById(containerId);
   if (!el) return;
@@ -61,11 +69,14 @@ export function renderNativeBanner(containerId) {
         iframe.style.height = h + "px";
         fitted = true;
       }
-    } catch (e) { /* fallback timeout di bawah yang urus */ }
+    } catch (e) { /* dibiarkan -- fallback timeout di bawah yang urus */ }
   };
 
   iframe.addEventListener("load", () => {
     fit();
+    // Script iklan (invoke.js) jalan async, isinya sering baru "penuh"
+    // beberapa saat setelah iframe selesai load -- ukur ulang beberapa
+    // kali dalam ~3 detik pertama supaya tinggi akhirnya benar-benar pas.
     let tries = 0;
     const timer = setInterval(() => {
       fit();
@@ -74,13 +85,16 @@ export function renderNativeBanner(containerId) {
     }, 300);
   });
 
+  // Kalau dalam 3.5 detik tinggi tetap tidak terbaca (mis. no-fill / iklan
+  // gagal tampil), baru pakai tinggi cadangan supaya kotaknya tidak
+  // collapse total jadi 1px kosong.
   setTimeout(() => {
     if (!fitted) iframe.style.height = NATIVE_FALLBACK_HEIGHT + "px";
   }, 3500);
 }
 
-// Sticky banner 320x50 di bawah layar -- tampil di semua ukuran layar,
-// bisa ditutup pengunjung kapan saja lewat tombol X.
+// Sticky banner 320x50 di bawah layar -- tampil di semua ukuran layar
+// (mobile maupun desktop), bisa ditutup pengunjung kapan saja lewat tombol X.
 export function mountStickyMobileBanner() {
   if (document.getElementById("nokt-sticky-ad")) return;
   const bar = document.createElement("div");
@@ -98,43 +112,30 @@ export function mountStickyMobileBanner() {
   document.body.style.paddingBottom = "58px";
 }
 
-// FIX iklan dobel/nyasar: sebelumnya kode ini cuma MENAMBAH slot baru
-// tanpa pernah membersihkan slot lama, jadi kalau urutan video di grid
-// berubah (mis. data realtime disortir ulang), slot iklan lama bisa
-// "ketinggalan" di posisi yang sudah tidak tepat SEMENTARA slot baru
-// tetap ditambahkan di posisi yang benar -- hasilnya 2 iklan numpuk.
-// Sekarang tiap kali grid berubah: HAPUS SEMUA slot iklan lama dulu,
-// baru hitung ulang dari nol berdasarkan urutan video yang terbaru,
-// dan sisipkan ulang. Observer di-nonaktifkan sementara selagi kita
-// sendiri yang mengubah DOM, supaya perubahan itu tidak memicu dirinya
-// sendiri berulang-ulang (infinite loop).
+// Sisip Native Banner otomatis tiap N video di dalam grid — "mengintai" grid
+// pakai MutationObserver, jadi TIDAK PERLU ubah site.js/watch.js sama sekali.
 export function injectGridAds(gridSelector, interval = 8) {
   const grid = document.querySelector(gridSelector);
   if (!grid) return;
   let seq = 0;
-
   const scan = () => {
-    observer.disconnect();
-
-    grid.querySelectorAll(":scope > .nokt-ad-slot").forEach(n => n.remove());
-    const cards = Array.from(grid.children);
+    const cards = Array.from(grid.children).filter(el => !el.classList.contains("nokt-ad-slot"));
     cards.forEach((card, i) => {
       const position = i + 1;
       if (position % interval === 0) {
-        const slotId = `nokt-ad-slot-${gridSelector.replace(/[^a-z0-9]/gi,"")}-${seq++}`;
-        const slot = document.createElement("div");
-        slot.className = "nokt-ad-slot";
-        slot.id = slotId;
-        slot.style.cssText = `grid-column:1 / -1;margin:0;`;
-        card.after(slot);
-        renderNativeBanner(slotId);
+        const already = card.nextElementSibling && card.nextElementSibling.classList.contains("nokt-ad-slot");
+        if (!already) {
+          const slotId = `nokt-ad-slot-${gridSelector.replace(/[^a-z0-9]/gi,"")}-${seq++}`;
+          const slot = document.createElement("div");
+          slot.className = "nokt-ad-slot";
+          slot.id = slotId;
+          slot.style.cssText = `grid-column:1 / -1;margin:0;`;
+          card.after(slot);
+          renderNativeBanner(slotId);
+        }
       }
     });
-
-    observer.observe(grid, { childList: true });
   };
-
-  const observer = new MutationObserver(scan);
-  observer.observe(grid, { childList: true });
+  new MutationObserver(scan).observe(grid, { childList: true });
   scan();
 }
