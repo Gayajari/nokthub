@@ -4,6 +4,8 @@
 const AD_UNITS = {
   banner320x50: { key: "f7e12447bffcb6a5de5da6511606b3b1", width: 320, height: 50 },
   banner300x250: { key: "01c9679d602b9111028c86f0400a8eef", width: 300, height: 250 },
+  // Zona ini sudah disetel manager Adsterra: responsif sendiri --
+  // 1 kartu di layar sempit (mobile), 4 kartu di layar lebar (desktop).
   native: { containerId: "container-3b1b55ee4183e6526d08a0c286844beb", src: "https://inputoppose.com/3b1b55ee4183e6526d08a0c286844beb/invoke.js" }
 };
 
