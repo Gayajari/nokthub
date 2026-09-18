@@ -7,14 +7,10 @@ const AD_UNITS = {
   native: { containerId: "container-3b1b55ee4183e6526d08a0c286844beb", src: "https://inputoppose.com/3b1b55ee4183e6526d08a0c286844beb/invoke.js" }
 };
 
-// PENYEMPURNAAN: iklan Native Banner sebelumnya kepotong -- iframe-nya
-// dikasih heightCss kosong (""), jadi browser pakai tinggi default iframe
-// yang jauh lebih pendek dari tinggi banner aslinya (banner Native
-// biasanya beberapa ratus px tinggi, isinya gambar promosi lengkap).
-// Sekarang wadah Native Banner dikasih tinggi minimum yang cukup lega
-// (NATIVE_MIN_HEIGHT) supaya seluruh isi iklan kelihatan penuh, tidak
-// terpotong di tengah.
-const NATIVE_MIN_HEIGHT = 320; // px -- cukup untuk banner promosi utuh
+// Tinggi cadangan HANYA dipakai kalau tinggi asli iklan gagal terbaca
+// (mis. konten iklan gagal dimuat total) -- bukan lagi tinggi tetap yang
+// selalu dipasang, biar tidak ada ruang kosong nganggur seperti sebelumnya.
+const NATIVE_FALLBACK_HEIGHT = 320; // px
 
 function buildBannerSrcdoc(unit) {
   return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;overflow:hidden;background:transparent;}</style></head>
@@ -31,7 +27,7 @@ function buildNativeSrcdoc(unit) {
   </body></html>`;
 }
 function mountAdIframe(container, srcdocHtml, widthCss, heightCss) {
-  if (!container) return;
+  if (!container) return null;
   const iframe = document.createElement("iframe");
   iframe.srcdoc = srcdocHtml;
   iframe.style.cssText = `width:${widthCss};height:${heightCss};border:0;display:block;margin:0 auto;`;
@@ -40,28 +36,65 @@ function mountAdIframe(container, srcdocHtml, widthCss, heightCss) {
   iframe.setAttribute("loading", "lazy");
   container.innerHTML = "";
   container.appendChild(iframe);
+  return iframe;
 }
 
 export function renderBanner300x250(containerId) {
   mountAdIframe(document.getElementById(containerId), buildBannerSrcdoc(AD_UNITS.banner300x250), "300px", "250px");
 }
 
+// FIX jarak kosong di bawah iklan: sebelumnya kotak iklan dikasih tinggi
+// TETAP 320px, padahal tinggi asli materi iklan (yang bisa beda-beda tiap
+// tayang) sering lebih pendek dari itu -- sisanya jadi ruang kosong yang
+// kelihatan seperti "jarak" ke section berikutnya, padahal sebenarnya
+// kosongan di DALAM kotak iklan itu sendiri. Sekarang: ukur tinggi asli
+// konten iklan setelah dimuat (iframe pakai sandbox "allow-same-origin"
+// jadi boleh dibaca dari luar), lalu pas-kan tinggi kotaknya PERSIS
+// sebesar itu -- tidak lebih, tidak kurang. Fallback ke tinggi tetap
+// HANYA kalau gagal terbaca sama sekali (mis. iklan gagal tampil).
 export function renderNativeBanner(containerId) {
   const el = document.getElementById(containerId);
   if (!el) return;
-  // FIX kepotong: wadah luar dikasih tinggi minimum tetap (bukan lagi
-  // kosong), iframe di dalamnya mengisi penuh 100% tinggi wadah itu --
-  // jadi seluruh isi banner (yang biasanya cukup tinggi) tidak lagi
-  // terpotong di tengah gambar.
-  el.style.minHeight = NATIVE_MIN_HEIGHT + "px";
-  mountAdIframe(el, buildNativeSrcdoc(AD_UNITS.native), "100%", "100%");
+  el.style.minHeight = "0";
+  const iframe = mountAdIframe(el, buildNativeSrcdoc(AD_UNITS.native), "100%", "1px");
+  if (!iframe) return;
+
+  let fitted = false;
+  const fit = () => {
+    try {
+      const doc = iframe.contentDocument;
+      if (!doc || !doc.body) return;
+      const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+      if (h > 20) {
+        iframe.style.height = h + "px";
+        fitted = true;
+      }
+    } catch (e) { /* dibiarkan -- fallback timeout di bawah yang urus */ }
+  };
+
+  iframe.addEventListener("load", () => {
+    fit();
+    // Script iklan (invoke.js) jalan async, isinya sering baru "penuh"
+    // beberapa saat setelah iframe selesai load -- ukur ulang beberapa
+    // kali dalam ~3 detik pertama supaya tinggi akhirnya benar-benar pas.
+    let tries = 0;
+    const timer = setInterval(() => {
+      fit();
+      tries++;
+      if (tries > 10) clearInterval(timer);
+    }, 300);
+  });
+
+  // Kalau dalam 3.5 detik tinggi tetap tidak terbaca (mis. no-fill / iklan
+  // gagal tampil), baru pakai tinggi cadangan supaya kotaknya tidak
+  // collapse total jadi 1px kosong.
+  setTimeout(() => {
+    if (!fitted) iframe.style.height = NATIVE_FALLBACK_HEIGHT + "px";
+  }, 3500);
 }
 
-// Sticky banner 320x50 di bawah layar -- SEKARANG tampil di semua ukuran
-// layar (mobile MAUPUN desktop), bisa ditutup pengunjung kapan saja lewat
-// tombol X. Sebelumnya ada baris `if (window.innerWidth > 768) return;`
-// yang sengaja menyembunyikan banner ini kalau dibuka dari desktop --
-// baris itu sudah dihapus.
+// Sticky banner 320x50 di bawah layar -- tampil di semua ukuran layar
+// (mobile maupun desktop), bisa ditutup pengunjung kapan saja lewat tombol X.
 export function mountStickyMobileBanner() {
   if (document.getElementById("nokt-sticky-ad")) return;
   const bar = document.createElement("div");
@@ -81,7 +114,6 @@ export function mountStickyMobileBanner() {
 
 // Sisip Native Banner otomatis tiap N video di dalam grid — "mengintai" grid
 // pakai MutationObserver, jadi TIDAK PERLU ubah site.js/watch.js sama sekali.
-// Aman berdampingan dengan render video yang sudah ada.
 export function injectGridAds(gridSelector, interval = 8) {
   const grid = document.querySelector(gridSelector);
   if (!grid) return;
@@ -97,12 +129,7 @@ export function injectGridAds(gridSelector, interval = 8) {
           const slot = document.createElement("div");
           slot.className = "nokt-ad-slot";
           slot.id = slotId;
-          // FIX kepotong: grid-column tetap full-width, TAPI sekarang
-          // dikasih tinggi minimum juga di level slot -- supaya ruang
-          // sudah tersedia SEBELUM renderNativeBanner() sempat mengisi
-          // iframe-nya (mencegah "lompatan" tinggi mendadak saat iklan
-          // baru selesai dimuat).
-          slot.style.cssText = `grid-column:1 / -1;margin:6px 0;min-height:${NATIVE_MIN_HEIGHT}px;`;
+          slot.style.cssText = `grid-column:1 / -1;margin:0;`;
           card.after(slot);
           renderNativeBanner(slotId);
         }
