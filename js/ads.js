@@ -25,18 +25,12 @@ function buildBannerSrcdoc(unit) {
   </body></html>`;
 }
 
-// Bangun srcdoc native banner: ukur tinggi konten sekali (setelah font
-// selesai load dan hasilnya stabil), lalu lapor ke parent lewat
-// postMessage -- sekali saja, tidak pernah diulang, supaya tidak
-// memicu iklan menambah kartu baru.
-//
-// CATATAN: jumlah kartu yang tampil (1 vs beberapa) itu sebenarnya
-// ditentukan dari sisi Adsterra sendiri -- saat generate kode Native
-// Banner di dashboard mereka, ada opsi "Quantity" untuk jumlah kartu.
-// Kode `key`/`src` yang dipakai sekarang kemungkinan di-generate dengan
-// quantity > 1. Cara paling pasti untuk selalu dapat 1 kartu: generate
-// ulang kode Native Banner di dashboard Adsterra dengan Quantity = 1,
-// lalu ganti nilai AD_UNITS.native di bawah dengan key/src yang baru.
+// Bangun srcdoc native banner. Widget yang sama ini menampilkan sampai
+// 4 kartu (dari settingan Adsterra). Supaya PASTI di mobile cuma 1
+// kartu tanpa mengubah tampilan desktop, kita deteksi lebar layar di
+// dalam iframe sendiri: kalau <=768px, kartu ke-2 dst disembunyikan
+// (dengan filter ketat: elemen <a> yang beneran punya <img> berukuran
+// nyata, bukan pixel pelacak); kalau desktop, dibiarkan tampil semua.
 function buildNativeSrcdoc(unit, token) {
   return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;background:transparent;overflow:hidden;}</style></head>
   <body>
@@ -45,30 +39,80 @@ function buildNativeSrcdoc(unit, token) {
     <script>
       (function(){
         var HEIGHT_BUFFER = 28;
+        var MOBILE_BREAKPOINT = 768;
         var reported = false;
-        var lastHeight = -1;
-        var stableCount = 0;
-        var checks = 0;
-        var maxChecks = 24;
-        function check(){
+        var keptAnchor = null;
+
+        function reportHeight(h){
           if (reported) return;
-          checks++;
-          var h = document.body.scrollHeight;
-          if (h === lastHeight) { stableCount++; } else { stableCount = 0; lastHeight = h; }
-          if (stableCount >= 3 || checks >= maxChecks) {
-            reported = true;
-            try {
-              parent.postMessage({ noktAdHeight: true, token: "${token}", height: h + HEIGHT_BUFFER }, "*");
-            } catch(e) {}
+          reported = true;
+          try { parent.postMessage({ noktAdHeight: true, token: "${token}", height: h }, "*"); } catch(e) {}
+        }
+
+        function findRealAdAnchors(root){
+          var anchors = Array.prototype.slice.call(root.querySelectorAll("a"));
+          return anchors.filter(function(a){
+            var img = a.querySelector("img");
+            return img && img.complete && img.naturalWidth > 0 &&
+                   img.offsetWidth > 20 && img.offsetHeight > 20;
+          });
+        }
+
+        function enforceSingleAnchor(root){
+          var anchors = findRealAdAnchors(root);
+          if (!anchors.length) return false;
+          if (!keptAnchor) keptAnchor = anchors[0];
+          anchors.forEach(function(a){
+            if (a !== keptAnchor) a.style.display = "none";
+          });
+          return true;
+        }
+
+        var isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
+        var attempts = 0;
+        var maxAttempts = 24; // ~6 detik maksimum tunggu
+
+        function trimTick(){
+          if (reported) return;
+          attempts++;
+          var container = document.getElementById("${unit.containerId}");
+          var found = container && enforceSingleAnchor(container);
+          if (found || attempts >= maxAttempts) {
+            if (container) {
+              new MutationObserver(function(){ enforceSingleAnchor(container); })
+                .observe(container, { childList: true, subtree: true });
+            }
+            reportHeight(document.body.scrollHeight + HEIGHT_BUFFER);
             return;
+          }
+          setTimeout(trimTick, 250);
+        }
+
+        // Untuk desktop: tidak dipangkas, cuma ukur tinggi total sekali
+        // (setelah stabil) supaya iframe pas untuk 4 kartu.
+        function measureFullTick(){
+          var lastHeight = -1, stableCount = 0, checks = 0, maxChecks = 24;
+          function check(){
+            if (reported) return;
+            checks++;
+            var h = document.body.scrollHeight;
+            if (h === lastHeight) { stableCount++; } else { stableCount = 0; lastHeight = h; }
+            if (stableCount >= 3 || checks >= maxChecks) {
+              reportHeight(h + HEIGHT_BUFFER);
+              return;
+            }
+            setTimeout(check, 250);
           }
           setTimeout(check, 250);
         }
-        function startChecking(){ setTimeout(check, 250); }
+
+        function start(){
+          if (isMobile) { setTimeout(trimTick, 250); } else { measureFullTick(); }
+        }
         if (document.fonts && document.fonts.ready) {
-          document.fonts.ready.then(startChecking).catch(startChecking);
+          document.fonts.ready.then(start).catch(start);
         } else {
-          startChecking();
+          start();
         }
       })();
     <\/script>
