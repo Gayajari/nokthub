@@ -7,6 +7,14 @@ const AD_UNITS = {
   native: { containerId: "container-3b1b55ee4183e6526d08a0c286844beb", src: "https://inputoppose.com/3b1b55ee4183e6526d08a0c286844beb/invoke.js" }
 };
 
+// Batas tinggi aman untuk native banner supaya tidak "kepotong" dan
+// tidak juga bisa melar tak terbatas kalau ada iklan nakal.
+const NATIVE_MIN_HEIGHT = 90;
+const NATIVE_MAX_HEIGHT = 900;
+const NATIVE_DEFAULT_HEIGHT = 280; // tinggi awal sebelum ukuran asli diketahui
+
+let nativeAdSeq = 0;
+
 function buildBannerSrcdoc(unit) {
   return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;overflow:hidden;background:transparent;}</style></head>
   <body>
@@ -14,15 +22,39 @@ function buildBannerSrcdoc(unit) {
     <script src="https://inputoppose.com/${unit.key}/invoke.js"><\/script>
   </body></html>`;
 }
-function buildNativeSrcdoc(unit) {
-  return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;background:transparent;}</style></head>
+
+// FIX: sebelumnya overflow:hidden di sini membuat konten native ad yang
+// lebih tinggi dari iframe langsung terpotong. Sekarang overflow:visible,
+// dan ditambah script kecil yang melapor tinggi konten asli ke parent
+// lewat postMessage supaya iframe di halaman utama bisa menyesuaikan
+// tingginya secara otomatis (bukan dipaksa 150px default).
+function buildNativeSrcdoc(unit, token) {
+  return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;background:transparent;overflow:visible;}</style></head>
   <body>
     <div id="${unit.containerId}"></div>
     <script async data-cfasync="false" src="${unit.src}"><\/script>
+    <script>
+      (function(){
+        function reportHeight(){
+          try {
+            var h = document.body.scrollHeight;
+            parent.postMessage({ noktAdHeight: true, token: "${token}", height: h }, "*");
+          } catch(e) {}
+        }
+        if (window.ResizeObserver) {
+          new ResizeObserver(reportHeight).observe(document.body);
+        }
+        window.addEventListener("load", reportHeight);
+        // Iklan native sering render bertahap (lazy image dsb), jadi
+        // dicek ulang beberapa kali di awal untuk menangkap perubahan tinggi.
+        [200, 500, 1000, 2000, 3500].forEach(function(ms){ setTimeout(reportHeight, ms); });
+      })();
+    <\/script>
   </body></html>`;
 }
+
 function mountAdIframe(container, srcdocHtml, widthCss, heightCss) {
-  if (!container) return;
+  if (!container) return null;
   const iframe = document.createElement("iframe");
   iframe.srcdoc = srcdocHtml;
   iframe.style.cssText = `width:${widthCss};height:${heightCss};border:0;display:block;margin:0 auto;`;
@@ -31,14 +63,47 @@ function mountAdIframe(container, srcdocHtml, widthCss, heightCss) {
   iframe.setAttribute("loading", "lazy");
   container.innerHTML = "";
   container.appendChild(iframe);
+  return iframe;
 }
 
 export function renderBanner300x250(containerId) {
   mountAdIframe(document.getElementById(containerId), buildBannerSrcdoc(AD_UNITS.banner300x250), "300px", "250px");
 }
+
+// FIX: dulu height dikirim string kosong ("") -> CSS "height:;" tidak
+// valid -> browser pakai default 150px -> konten iklan yang lebih tinggi
+// dari itu kepotong (ini penyebab utama bug di screenshot). Sekarang
+// iframe dimulai dengan tinggi default yang wajar, lalu di-update live
+// begitu ukuran asli konten iklan dilaporkan lewat postMessage.
 export function renderNativeBanner(containerId) {
   const el = document.getElementById(containerId);
-  mountAdIframe(el, buildNativeSrcdoc(AD_UNITS.native), "100%", "");
+  if (!el) return;
+
+  const token = `nat-${containerId}-${nativeAdSeq++}-${Date.now()}`;
+  const iframe = mountAdIframe(
+    el,
+    buildNativeSrcdoc(AD_UNITS.native, token),
+    "100%",
+    `${NATIVE_DEFAULT_HEIGHT}px`
+  );
+  if (!iframe) return;
+  iframe.style.transition = "height .15s ease";
+
+  const handler = (event) => {
+    const data = event.data;
+    if (!data || data.noktAdHeight !== true || data.token !== token) return;
+
+    // Kalau slotnya sudah dilepas dari halaman (mis. navigasi SPA),
+    // bersihkan listener supaya tidak numpuk.
+    if (!iframe.isConnected) {
+      window.removeEventListener("message", handler);
+      return;
+    }
+
+    const h = Math.max(NATIVE_MIN_HEIGHT, Math.min(Math.ceil(data.height), NATIVE_MAX_HEIGHT));
+    iframe.style.height = h + "px";
+  };
+  window.addEventListener("message", handler);
 }
 
 // Sticky banner 320x50 di bawah layar (mobile), bisa ditutup pengunjung
