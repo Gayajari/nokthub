@@ -29,25 +29,32 @@ function buildBannerSrcdoc(unit) {
 // lewat postMessage supaya iframe di halaman utama bisa menyesuaikan
 // tingginya secara otomatis (bukan dipaksa 150px default).
 function buildNativeSrcdoc(unit, token) {
-  return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;background:transparent;overflow:visible;}</style></head>
+  return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;background:transparent;overflow:hidden;}</style></head>
   <body>
     <div id="${unit.containerId}"></div>
     <script async data-cfasync="false" src="${unit.src}"><\/script>
     <script>
       (function(){
-        function reportHeight(){
+        // PENTING: ukur tinggi konten HANYA SEKALI, lalu berhenti.
+        // Iklan native ini akan terus menambah kartu baru untuk mengisi
+        // ruang yang tersedia setiap kali iframe diperbesar -- kalau kita
+        // terus memantau & melaporkan tinggi (misal pakai ResizeObserver
+        // yang jalan terus), itu memicu loop: iframe membesar -> iklan
+        // nambah kartu -> body makin tinggi -> iframe dibesarkan lagi ->
+        // dst, sampai muncul banyak kartu sekaligus. Dengan sekali ukur
+        // di waktu yang cukup (setelah kartu pertama render tapi sebelum
+        // skrip iklan sempat mengisi kartu tambahan), ukurannya tetap pas
+        // untuk 1 kartu dan tidak pernah dipicu untuk membesar lagi.
+        var reported = false;
+        function reportHeightOnce(){
+          if (reported) return;
+          reported = true;
           try {
             var h = document.body.scrollHeight;
             parent.postMessage({ noktAdHeight: true, token: "${token}", height: h }, "*");
           } catch(e) {}
         }
-        if (window.ResizeObserver) {
-          new ResizeObserver(reportHeight).observe(document.body);
-        }
-        window.addEventListener("load", reportHeight);
-        // Iklan native sering render bertahap (lazy image dsb), jadi
-        // dicek ulang beberapa kali di awal untuk menangkap perubahan tinggi.
-        [200, 500, 1000, 2000, 3500].forEach(function(ms){ setTimeout(reportHeight, ms); });
+        setTimeout(reportHeightOnce, 600);
       })();
     <\/script>
   </body></html>`;
@@ -93,12 +100,13 @@ export function renderNativeBanner(containerId) {
     const data = event.data;
     if (!data || data.noktAdHeight !== true || data.token !== token) return;
 
-    // Kalau slotnya sudah dilepas dari halaman (mis. navigasi SPA),
-    // bersihkan listener supaya tidak numpuk.
-    if (!iframe.isConnected) {
-      window.removeEventListener("message", handler);
-      return;
-    }
+    // One-shot: langsung lepas listener begitu dipakai sekali. Ini yang
+    // mencegah loop "iframe membesar -> iklan nambah kartu -> membesar
+    // lagi" -- sesudah pengukuran pertama diterapkan, kita sengaja tidak
+    // dengarkan laporan tinggi susulan sama sekali.
+    window.removeEventListener("message", handler);
+
+    if (!iframe.isConnected) return;
 
     const h = Math.max(NATIVE_MIN_HEIGHT, Math.min(Math.ceil(data.height), NATIVE_MAX_HEIGHT));
     iframe.style.height = h + "px";
