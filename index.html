@@ -157,11 +157,10 @@
   // pasti 2, tidak berubah-ubah ikut jumlah video yang tampil.
   import { mountStickyMobileBanner, renderNativeBanner } from "./js/ads.js";
   mountStickyMobileBanner();
-  // Angka ke-2 = tinggi crop mobile (px), angka ke-3 = tinggi desktop (px).
-  // Ini masih angka perkiraan awal -- CEK LANGSUNG di HP & desktop lebar,
-  // lalu sesuaikan angkanya kalau masih kepotong/kelebihan ruang kosong.
-  renderNativeBanner("ad-native-1", 340, 900);
-  renderNativeBanner("ad-native-2", 340, 900);
+  // Angka ke-2 = tinggi crop MOBILE (px) -- sudah dites & pas di 340.
+  // Desktop tidak perlu angka, otomatis menyesuaikan sendiri (4 kartu).
+  renderNativeBanner("ad-native-1", 340);
+  renderNativeBanner("ad-native-2", 340);
 </script>
 </body>
 </html>
