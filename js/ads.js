@@ -4,18 +4,8 @@
 const AD_UNITS = {
   banner320x50: { key: "f7e12447bffcb6a5de5da6511606b3b1", width: 320, height: 50 },
   banner300x250: { key: "01c9679d602b9111028c86f0400a8eef", width: 300, height: 250 },
-  // Zona ini sudah disetel manager Adsterra: responsif sendiri --
-  // 1 kartu di layar sempit (mobile), 4 kartu di layar lebar (desktop).
   native: { containerId: "container-3b1b55ee4183e6526d08a0c286844beb", src: "https://inputoppose.com/3b1b55ee4183e6526d08a0c286844beb/invoke.js" }
 };
-
-// Batas tinggi aman untuk native banner supaya tidak "kepotong" dan
-// tidak juga bisa melar tak terbatas kalau ada iklan nakal.
-const NATIVE_MIN_HEIGHT = 90;
-const NATIVE_MAX_HEIGHT = 520;
-const NATIVE_DEFAULT_HEIGHT = 160; // tinggi awal sebelum ukuran asli diketahui -- sengaja kecil biar iklan tidak "diundang" nambah kartu kedua selagi masih loading
-
-let nativeAdSeq = 0;
 
 function buildBannerSrcdoc(unit) {
   return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;overflow:hidden;background:transparent;}</style></head>
@@ -25,101 +15,16 @@ function buildBannerSrcdoc(unit) {
   </body></html>`;
 }
 
-// Bangun srcdoc native banner. Widget yang sama ini menampilkan sampai
-// 4 kartu (dari settingan Adsterra). Supaya PASTI di mobile cuma 1
-// kartu tanpa mengubah tampilan desktop, kita deteksi lebar layar di
-// dalam iframe sendiri: kalau <=768px, kartu ke-2 dst disembunyikan
-// (dengan filter ketat: elemen <a> yang beneran punya <img> berukuran
-// nyata, bukan pixel pelacak); kalau desktop, dibiarkan tampil semua.
-function buildNativeSrcdoc(unit, token, isMobile) {
+// Native banner: srcdoc dibiarkan polos, tidak ada logic ukur-ukur di
+// dalamnya sama sekali. Semua "kepastian ukuran" ditangani di luar
+// (lihat renderNativeBanner) lewat teknik ruang-lega + crop tetap --
+// jauh lebih stabil dibanding coba ukur otomatis via postMessage yang
+// selalu kena race condition timing.
+function buildNativeSrcdoc(unit) {
   return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;background:transparent;overflow:hidden;}</style></head>
   <body>
     <div id="${unit.containerId}"></div>
     <script async data-cfasync="false" src="${unit.src}"><\/script>
-    <script>
-      (function(){
-        var HEIGHT_BUFFER = 28;
-        // Lebar mobile/desktop ditentukan dari HALAMAN UTAMA (di luar
-        // iframe ini), bukan lebar iframe sendiri -- soalnya kalau kolom
-        // konten situs (misal .container) punya max-width sempit, lebar
-        // iframe ikut sempit walau dibuka di layar desktop lebar, jadi
-        // salah kedeteksi "mobile" terus.
-        var isMobile = ${isMobile ? "true" : "false"};
-        var reported = false;
-        var keptAnchor = null;
-
-        function reportHeight(h){
-          if (reported) return;
-          reported = true;
-          try { parent.postMessage({ noktAdHeight: true, token: "${token}", height: h }, "*"); } catch(e) {}
-        }
-
-        function findRealAdAnchors(root){
-          var anchors = Array.prototype.slice.call(root.querySelectorAll("a"));
-          return anchors.filter(function(a){
-            var img = a.querySelector("img");
-            return img && img.complete && img.naturalWidth > 0 &&
-                   img.offsetWidth > 20 && img.offsetHeight > 20;
-          });
-        }
-
-        function enforceSingleAnchor(root){
-          var anchors = findRealAdAnchors(root);
-          if (!anchors.length) return false;
-          if (!keptAnchor) keptAnchor = anchors[0];
-          anchors.forEach(function(a){
-            if (a !== keptAnchor) a.style.display = "none";
-          });
-          return true;
-        }
-
-        var attempts = 0;
-        var maxAttempts = 24; // ~6 detik maksimum tunggu
-
-        function trimTick(){
-          if (reported) return;
-          attempts++;
-          var container = document.getElementById("${unit.containerId}");
-          var found = container && enforceSingleAnchor(container);
-          if (found || attempts >= maxAttempts) {
-            if (container) {
-              new MutationObserver(function(){ enforceSingleAnchor(container); })
-                .observe(container, { childList: true, subtree: true });
-            }
-            reportHeight(document.body.scrollHeight + HEIGHT_BUFFER);
-            return;
-          }
-          setTimeout(trimTick, 250);
-        }
-
-        // Untuk desktop: tidak dipangkas, cuma ukur tinggi total sekali
-        // (setelah stabil) supaya iframe pas untuk 4 kartu.
-        function measureFullTick(){
-          var lastHeight = -1, stableCount = 0, checks = 0, maxChecks = 24;
-          function check(){
-            if (reported) return;
-            checks++;
-            var h = document.body.scrollHeight;
-            if (h === lastHeight) { stableCount++; } else { stableCount = 0; lastHeight = h; }
-            if (stableCount >= 3 || checks >= maxChecks) {
-              reportHeight(h + HEIGHT_BUFFER);
-              return;
-            }
-            setTimeout(check, 250);
-          }
-          setTimeout(check, 250);
-        }
-
-        function start(){
-          if (isMobile) { setTimeout(trimTick, 250); } else { measureFullTick(); }
-        }
-        if (document.fonts && document.fonts.ready) {
-          document.fonts.ready.then(start).catch(start);
-        } else {
-          start();
-        }
-      })();
-    <\/script>
   </body></html>`;
 }
 
@@ -140,41 +45,57 @@ export function renderBanner300x250(containerId) {
   mountAdIframe(document.getElementById(containerId), buildBannerSrcdoc(AD_UNITS.banner300x250), "300px", "250px");
 }
 
-// FIX: dulu height dikirim string kosong ("") -> CSS "height:;" tidak
-// valid -> browser pakai default 150px -> konten iklan yang lebih tinggi
-// dari itu kepotong (ini penyebab utama bug di screenshot). Sekarang
-// iframe dimulai dengan tinggi default yang wajar, lalu di-update live
-// begitu ukuran asli konten iklan dilaporkan lewat postMessage.
-export function renderNativeBanner(containerId) {
+// Native banner -- teknik "ruang lega + crop tetap" (terbukti stabil di
+// situs lain, tidak pernah kepotong/bocor kartu tambahan):
+//
+//  - MOBILE (lebar < 900px): iframe dikasih tinggi lega (500px) di
+//    dalam supaya kartu pertama sempat render UTUH sebelum kepotong,
+//    lalu dibungkus wrapper overflow:hidden dengan tinggi TETAP
+//    (cropHeightMobile) yang pas di batas bawah 1 kartu. Angka ini
+//    HARUS dites manual di browser (lihat catatan di bawah).
+//  - DESKTOP (lebar >= 900px): tidak dibungkus crop -- cuma dikasih
+//    tinggi tetap (desktopHeight) yang harus cukup menampung 4 kartu.
+//
+// CARA CARI ANGKA cropHeightMobile / desktopHeight YANG PAS:
+//  1. Buka halaman di device/browser sungguhan (bukan cuma DevTools
+//     device-mode, karena lebar render bisa beda).
+//  2. Lihat kartu iklan tampil penuh (untuk sementara boleh naikkan
+//     dulu angkanya jadi besar, misal 600, biar tidak kepotong).
+//  3. Screenshot / ukur kira-kira di titik berapa px pas batas bawah
+//     kartu pertama (mobile) atau kartu ke-4 (desktop) berakhir.
+//  4. Ganti nilai default di bawah dengan angka itu.
+const NATIVE_DESKTOP_BREAKPOINT = 900;
+const NATIVE_MOBILE_INNER_HEIGHT = 500;   // ruang lega di dalam iframe (mobile)
+const NATIVE_MOBILE_CROP_DEFAULT = 340;   // TODO: sesuaikan hasil tes -- tinggi pas 1 kartu
+const NATIVE_DESKTOP_HEIGHT_DEFAULT = 900; // TODO: sesuaikan hasil tes -- tinggi pas 4 kartu
+
+export function renderNativeBanner(containerId, cropHeightMobile, desktopHeight) {
   const el = document.getElementById(containerId);
   if (!el) return;
 
-  const token = `nat-${containerId}-${nativeAdSeq++}-${Date.now()}`;
-  const iframe = mountAdIframe(
-    el,
-    buildNativeSrcdoc(AD_UNITS.native, token),
-    "100%",
-    `${NATIVE_DEFAULT_HEIGHT}px`
-  );
-  if (!iframe) return;
-  iframe.style.transition = "height .15s ease";
+  const isDesktop = window.innerWidth >= NATIVE_DESKTOP_BREAKPOINT;
+  const iframe = document.createElement("iframe");
+  iframe.srcdoc = buildNativeSrcdoc(AD_UNITS.native);
+  iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-popups");
+  iframe.setAttribute("scrolling", "no");
+  iframe.setAttribute("loading", "lazy");
+  iframe.style.cssText = "width:100%;border:0;display:block;";
 
-  const handler = (event) => {
-    const data = event.data;
-    if (!data || data.noktAdHeight !== true || data.token !== token) return;
+  el.innerHTML = "";
 
-    // One-shot: langsung lepas listener begitu dipakai sekali. Ini yang
-    // mencegah loop "iframe membesar -> iklan nambah kartu -> membesar
-    // lagi" -- sesudah pengukuran pertama diterapkan, kita sengaja tidak
-    // dengarkan laporan tinggi susulan sama sekali.
-    window.removeEventListener("message", handler);
-
-    if (!iframe.isConnected) return;
-
-    const h = Math.max(NATIVE_MIN_HEIGHT, Math.min(Math.ceil(data.height), NATIVE_MAX_HEIGHT));
-    iframe.style.height = h + "px";
-  };
-  window.addEventListener("message", handler);
+  if (isDesktop) {
+    // Desktop: tidak di-crop, cuma dikasih tinggi tetap yang menampung 4 kartu.
+    iframe.style.height = (desktopHeight || NATIVE_DESKTOP_HEIGHT_DEFAULT) + "px";
+    el.appendChild(iframe);
+  } else {
+    // Mobile: ruang lega di dalam (biar kartu pertama render utuh),
+    // lalu dipotong rapi ke tinggi 1 kartu lewat wrapper overflow:hidden.
+    iframe.style.height = NATIVE_MOBILE_INNER_HEIGHT + "px";
+    const crop = document.createElement("div");
+    crop.style.cssText = `width:100%;height:${cropHeightMobile || NATIVE_MOBILE_CROP_DEFAULT}px;overflow:hidden;border-radius:12px;`;
+    crop.appendChild(iframe);
+    el.appendChild(crop);
+  }
 }
 
 // Sticky banner 320x50 di bawah layar (mobile), bisa ditutup pengunjung
