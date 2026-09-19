@@ -70,7 +70,7 @@ export function renderBanner300x250(containerId) {
 const NATIVE_DESKTOP_BREAKPOINT = 900;
 const NATIVE_MOBILE_INNER_HEIGHT = 500;    // ruang lega di dalam iframe (mobile)
 const NATIVE_MOBILE_CROP_DEFAULT = 340;    // tinggi pas 1 kartu (mobile) -- sudah dites & sesuai
-const NATIVE_DESKTOP_HEIGHT_DEFAULT = 250; // tinggi tetap desktop -- PERLU DITES ULANG, ini perkiraan awal
+const NATIVE_DESKTOP_HEIGHT_DEFAULT = 240; // tinggi tetap desktop -- PERLU DITES ULANG, ini perkiraan awal
 
 export function renderNativeBanner(containerId, cropHeightMobile, desktopHeight) {
   const el = document.getElementById(containerId);
