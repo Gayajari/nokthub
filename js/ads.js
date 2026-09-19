@@ -15,54 +15,17 @@ function buildBannerSrcdoc(unit) {
   </body></html>`;
 }
 
-// Native banner: srcdoc punya 2 mode.
-//  - MOBILE: polos saja, tidak ada logic ukur di dalamnya -- kepastian
-//    ukurannya ditangani di luar lewat teknik ruang-lega + crop tetap
-//    (lihat renderNativeBanner), sesuai teknik yang sudah terbukti pas.
-//  - DESKTOP: disisipi script kecil yang mengukur tinggi konten sampai
-//    stabil (nunggu 3x cek berturut-turut hasilnya sama), lalu lapor
-//    SEKALI ke parent lewat postMessage -- supaya iframe di-resize pas
-//    menampung 4 kartu, otomatis menyesuaikan walau lebar kontainer
-//    berubah. Dilapor cuma sekali (tidak diulang) supaya tidak memicu
-//    iklan menambah kartu baru gara-gara iframe terus membesar.
-function buildNativeSrcdoc(unit, measureToken) {
-  const measureScript = measureToken ? `
-    <script>
-      (function(){
-        var HEIGHT_BUFFER = 28;
-        var reported = false;
-        var lastHeight = -1;
-        var stableCount = 0;
-        var checks = 0;
-        var maxChecks = 24;
-        function check(){
-          if (reported) return;
-          checks++;
-          var h = document.body.scrollHeight;
-          if (h === lastHeight) { stableCount++; } else { stableCount = 0; lastHeight = h; }
-          if (stableCount >= 3 || checks >= maxChecks) {
-            reported = true;
-            try {
-              parent.postMessage({ noktAdHeight: true, token: "${measureToken}", height: h + HEIGHT_BUFFER }, "*");
-            } catch(e) {}
-            return;
-          }
-          setTimeout(check, 250);
-        }
-        function startChecking(){ setTimeout(check, 250); }
-        if (document.fonts && document.fonts.ready) {
-          document.fonts.ready.then(startChecking).catch(startChecking);
-        } else {
-          startChecking();
-        }
-      })();
-    <\/script>` : "";
-
+// Native banner: srcdoc polos, tidak ada logic ukur-ukur di dalamnya
+// sama sekali. Kepastian ukurannya (mobile maupun desktop) ditangani
+// di luar lewat angka tinggi TETAP yang dites manual (lihat
+// renderNativeBanner) -- bukan diukur otomatis via postMessage, karena
+// itu race condition dan hasilnya tidak konsisten (kadang kepotong
+// kadang pas, tergantung kecepatan render).
+function buildNativeSrcdoc(unit) {
   return `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;background:transparent;overflow:hidden;}</style></head>
   <body>
     <div id="${unit.containerId}"></div>
     <script async data-cfasync="false" src="${unit.src}"><\/script>
-    ${measureScript}
   </body></html>`;
 }
 
@@ -83,48 +46,47 @@ export function renderBanner300x250(containerId) {
   mountAdIframe(document.getElementById(containerId), buildBannerSrcdoc(AD_UNITS.banner300x250), "300px", "250px");
 }
 
-// Native banner -- HYBRID:
-//  - MOBILE (lebar < 900px): teknik "ruang lega + crop tetap" (dari
-//    Yakultind, sudah terbukti pas & stabil). Iframe dikasih tinggi
-//    lega (500px) di dalam supaya kartu pertama sempat render UTUH,
-//    lalu dibungkus wrapper overflow:hidden dengan tinggi TETAP
-//    (cropHeightMobile) yang pas di batas bawah 1 kartu.
-//  - DESKTOP (lebar >= 900px): logic NOKT HUB versi lama -- iframe
-//    diukur otomatis (stable-height via postMessage) sampai pas
-//    menampung 4 kartu, jadi tetap menyesuaikan sendiri kalau lebar
-//    kontainer situs berubah, tidak perlu angka tetap yang di-hardcode.
+// Native banner -- SAMA-SAMA pakai angka tinggi tetap yang dites manual
+// (bukan diukur otomatis lewat postMessage/timing, karena itu race
+// condition -- kadang render lebih lambat/cepat dari perkiraan, jadi
+// hasilnya kadang kepotong kadang pas, persis seperti yang kejadian).
+//  - MOBILE (lebar < 900px): ruang lega (500px) di dalam + dibungkus
+//    overflow:hidden dengan tinggi TETAP (cropHeightMobile) pas di
+//    batas bawah 1 kartu.
+//  - DESKTOP (lebar >= 900px): TIDAK dibungkus crop (mau tampil semua
+//    4 kartu, bukan dipotong) -- cuma dikasih tinggi tetap
+//    (desktopHeight) yang harus cukup lega menampung 4 kartu.
 //
-// CARA CARI ANGKA cropHeightMobile YANG PAS (mobile saja, desktop sudah
-// otomatis):
+// CARA CARI ANGKA YANG PAS (manual, sekali saja, sama untuk mobile & desktop):
 //  1. Buka halaman di device/browser sungguhan (bukan cuma DevTools
 //     device-mode, karena lebar render bisa beda).
-//  2. Lihat kartu iklan tampil penuh (untuk sementara boleh naikkan
-//     dulu angkanya jadi besar, misal 600, biar tidak kepotong).
-//  3. Ukur kira-kira di titik berapa px pas batas bawah kartu pertama
-//     berakhir.
+//  2. Sementara naikkan dulu angkanya jadi besar (misal 700 buat mobile,
+//     1200 buat desktop) biar kartu pasti tidak kepotong dulu.
+//  3. Ukur/kira-kira di titik berapa px pas batas bawah kartu terakhir
+//     (kartu ke-1 utk mobile, kartu ke-4 utk desktop) berakhir.
 //  4. Ganti nilai default di bawah (atau parameter saat memanggil
-//     renderNativeBanner) dengan angka itu.
+//     renderNativeBanner) dengan angka itu, kasih sedikit +buffer
+//     (10-20px) biar aman.
 const NATIVE_DESKTOP_BREAKPOINT = 900;
-const NATIVE_MOBILE_INNER_HEIGHT = 500;   // ruang lega di dalam iframe (mobile)
-const NATIVE_MOBILE_CROP_DEFAULT = 340;   // tinggi pas 1 kartu (mobile) -- sudah dites & sesuai
-const NATIVE_DESKTOP_DEFAULT_HEIGHT = 280; // tinggi awal sebelum ukuran asli (4 kartu) diketahui
+const NATIVE_MOBILE_INNER_HEIGHT = 500;    // ruang lega di dalam iframe (mobile)
+const NATIVE_MOBILE_CROP_DEFAULT = 340;    // tinggi pas 1 kartu (mobile) -- sudah dites & sesuai
+const NATIVE_DESKTOP_HEIGHT_DEFAULT = 1000; // tinggi tetap desktop -- PERLU DITES ULANG, ini perkiraan awal
 
-let nativeAdSeq = 0;
-
-export function renderNativeBanner(containerId, cropHeightMobile) {
+export function renderNativeBanner(containerId, cropHeightMobile, desktopHeight) {
   const el = document.getElementById(containerId);
   if (!el) return;
 
   const isDesktop = window.innerWidth >= NATIVE_DESKTOP_BREAKPOINT;
   el.innerHTML = "";
 
+  const iframe = document.createElement("iframe");
+  iframe.srcdoc = buildNativeSrcdoc(AD_UNITS.native);
+  iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-popups");
+  iframe.setAttribute("scrolling", "no");
+  iframe.setAttribute("loading", "lazy");
+
   if (!isDesktop) {
     // MOBILE: ruang lega + crop tetap (sudah pas, tidak diubah).
-    const iframe = document.createElement("iframe");
-    iframe.srcdoc = buildNativeSrcdoc(AD_UNITS.native);
-    iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-popups");
-    iframe.setAttribute("scrolling", "no");
-    iframe.setAttribute("loading", "lazy");
     iframe.style.cssText = `width:100%;height:${NATIVE_MOBILE_INNER_HEIGHT}px;border:0;display:block;`;
     const crop = document.createElement("div");
     crop.style.cssText = `width:100%;height:${cropHeightMobile || NATIVE_MOBILE_CROP_DEFAULT}px;overflow:hidden;border-radius:12px;`;
@@ -133,24 +95,9 @@ export function renderNativeBanner(containerId, cropHeightMobile) {
     return;
   }
 
-  // DESKTOP: auto-resize lewat postMessage sampai tinggi stabil (logic lama).
-  const token = `nat-${containerId}-${nativeAdSeq++}-${Date.now()}`;
-  const iframe = document.createElement("iframe");
-  iframe.srcdoc = buildNativeSrcdoc(AD_UNITS.native, token);
-  iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-popups");
-  iframe.setAttribute("scrolling", "no");
-  iframe.setAttribute("loading", "lazy");
-  iframe.style.cssText = `width:100%;height:${NATIVE_DESKTOP_DEFAULT_HEIGHT}px;border:0;display:block;transition:height .15s ease;`;
+  // DESKTOP: tinggi tetap, tidak di-crop (mau tampil semua 4 kartu).
+  iframe.style.cssText = `width:100%;height:${desktopHeight || NATIVE_DESKTOP_HEIGHT_DEFAULT}px;border:0;display:block;`;
   el.appendChild(iframe);
-
-  const handler = (event) => {
-    const data = event.data;
-    if (!data || data.noktAdHeight !== true || data.token !== token) return;
-    window.removeEventListener("message", handler); // one-shot, cegah loop membesar
-    if (!iframe.isConnected) return;
-    iframe.style.height = Math.ceil(data.height) + "px";
-  };
-  window.addEventListener("message", handler);
 }
 
 // Sticky banner 320x50 di bawah layar (mobile), bisa ditutup pengunjung
