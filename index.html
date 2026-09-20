@@ -2,166 +2,268 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8">
+<base href="/">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title id="site-title">NOKT HUB — Streaming Video</title>
-<meta id="site-meta-desc" name="description" content="NOKT HUB — platform streaming video terbaru, terpopuler, dan trending.">
-<meta name="theme-color" id="meta-theme-color" content="#0A0A0B">
-<link rel="manifest" href="manifest.json">
-<link rel="icon" id="site-favicon" href="https://i.ibb.co.com/nss27bKz/20260716-103634.png">
-
-<!-- Anti-flash: terapkan warna tema tersimpan SEBELUM halaman digambar,
-     supaya tidak kelihatan "kedip" oranye default sebelum berganti ke
-     warna yang diset admin. Diisi otomatis oleh js/app.js tiap kunjungan. -->
-<script>
-  (function(){
-    try {
-      var c = JSON.parse(localStorage.getItem('nokt_settings_cache') || 'null');
-      if (c && c.themeColor) {
-        document.documentElement.style.setProperty('--accent', c.themeColor);
-      }
-      if (c && c.siteName) {
-        document.write('<style>.site-brand-text,.site-name-inline{visibility:hidden}</style>');
-      }
-      var authCache = JSON.parse(localStorage.getItem('nokt_auth_cache') || 'null');
-      if (authCache) {
-        document.write('<style>#login-btn,#profile-btn{visibility:hidden}</style>');
-      }
-    } catch(e) {}
-  })();
-</script>
-
-<!-- Open Graph -->
-<meta property="og:title" id="og-site-title" content="NOKT HUB — Streaming Video">
-<meta property="og:description" id="og-site-desc" content="Tonton video terbaru dan terpopuler di NOKT HUB.">
-<meta property="og:type" content="website">
-
-<!-- Fonts -->
+<title>Yakultind — Galeri Foto &amp; Link</title>
+<meta name="description" content="Yakultind — kumpulan foto dan link terbaru, ditata rapi dan mudah dicari.">
+<meta name="keywords" content="yakultind, galeri foto, kumpulan link, foto dan link">
+<link rel="icon" href="/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css">
-
-<!-- JSON-LD -->
-<script type="application/ld+json" id="site-json-ld">
-{
-  "@context": "https://schema.org",
-  "@type": "WebSite",
-  "name": "NOKT HUB",
-  "url": "https://nokthub.example.com"
-}
-</script>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <header class="site-header">
-  <div class="header-row container">
-    <a href="index.html" class="brand">
-      <img id="site-logo-img" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" alt="NOKT HUB logo" style="width:32px;height:32px;background:var(--surface);border-radius:6px">
-      <span class="site-brand-text">NOKT HUB</span> <span class="dot"></span>
+  <div class="header-top">
+    <a href="index.html" class="home-btn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      <span data-i18n="home">Home</span>
     </a>
-    <a href="index.html" class="nav-btn">Home</a>
-
-    <div class="header-actions-row" style="display:flex;align-items:center;gap:16px;flex:1 1 100%;min-width:0">
-      <div class="search-wrap">
-        <input id="search-input" class="search-input" type="text" placeholder="Cari berdasarkan video... ">
-        <div id="search-results" class="search-results"></div>
-      </div>
-
-      <button id="login-btn" class="btn">Login</button>
-      <div id="profile-btn" class="profile-btn nav-btn" style="display:none;cursor:pointer"></div>
-    </div>
+    <a href="index.html" class="logo">Yakult<em>ind</em></a>
+    <button type="button" class="icon-round" id="search-toggle" aria-label="Pencarian" aria-expanded="false">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    </button>
   </div>
-
-  <!-- Baris kategori: chip scroll-horizontal, dirender otomatis oleh
-       js/site.js dari koleksi Firestore "categories". -->
-  <div id="category-row" class="catnav-row"></div>
+  <div class="search-panel" id="search-panel">
+    <form id="global-search-form">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="global-search-input" type="text" placeholder="Pencarian..." autocomplete="off" data-i18n-placeholder="search_placeholder">
+    </form>
+  </div>
+  <div class="bar-slots" id="bar-slots"></div>
 </header>
 
-<section class="hero">
-  <div id="hero-slider"></div>
-  <div id="hero-dots" class="hero-dots"></div>
-</section>
+<script>
+  /* Menghitung tinggi header secara dinamis untuk offset sticky baris
+     chips + tabs (.sticky-bars). Hanya urusan tampilan — tidak menyentuh
+     data, routing, atau fungsi lain. */
+  (function(){
+    var headerEl = document.querySelector('.site-header');
+    function setHeaderHeight(){
+      document.documentElement.style.setProperty('--header-h', headerEl.getBoundingClientRect().height + 'px');
+    }
+    setHeaderHeight();
+    window.addEventListener('resize', setHeaderHeight);
+    window.addEventListener('load', setHeaderHeight);
+    if(window.ResizeObserver){
+      new ResizeObserver(setHeaderHeight).observe(headerEl);
+    }
+  })();
+</script>
 
-<main class="container">
-  <section class="section" id="section-latest">
-    <div class="section-head">
-      <div>
-        <div class="eyebrow">Baru Diupload</div>
-        <h2>Video Terbaru</h2>
-      </div>
-      <a href="latest.html" class="nav-btn">Lihat semua →</a>
-    </div>
-    <div id="latest-grid" class="video-grid"></div>
-  </section>
+<div class="nav-row" id="nav-row"></div>
 
-  <!-- Native Banner #1 -- posisi tetap, PERSIS di atas "Video Populer".
-       Ini slot statis (bukan disisip otomatis di tengah grid seperti
-       sebelumnya), jadi jumlah & posisinya presisi, tidak ikut berubah
-       tergantung berapa banyak video yang ditampilkan. -->
-  <div id="ad-native-1" style="margin:8px 0 0"></div>
-
-  <section class="section" id="section-popular">
-    <div class="section-head">
-      <div>
-        <div class="eyebrow">Popular Score</div>
-        <h2>Video Populer</h2>
-      </div>
-      <a href="popular.html" class="nav-btn">Lihat semua →</a>
-    </div>
-    <div id="popular-grid" class="video-grid"></div>
-  </section>
-
-  <!-- Native Banner #2 -- posisi tetap, PERSIS di atas "Trending Tag". -->
-  <div id="ad-native-2" style="margin:8px 0 0"></div>
-
-  <section class="section" id="section-trending-tags">
-    <div class="section-head"><h2>Trending Tag</h2></div>
-    <div id="trending-tags"></div>
-  </section>
-
-  <section class="section">
-    <div class="section-head"><h2>Trending Kategori</h2></div>
-    <div id="trending-categories"></div>
-  </section>
-</main>
-
-<footer class="site-footer">
-  <div class="container footer-grid">
-    <div>
-      <a href="index.html" class="brand site-brand-text" style="margin-bottom:8px;display:inline-block;text-decoration:none">NOKT HUB</a>
-      <p>© 2026 <span class="site-name-inline">NOKT HUB</span>. Semua konten milik pemilik hak cipta masing-masing.</p>
-    </div>
-    <div class="footer-links">
-      <a href="contact.html">Kontak</a>
-      <a href="privacy-policy.html">Privacy Policy</a>
-      <a href="terms.html">Terms</a>
-      <a href="dmca.html">DMCA</a>
-      <a href="disclaimer.html">Disclaimer</a>
+<main class="wrap">
+  <div class="sticky-bars" id="sticky-bars">
+    <div class="chips" id="chips"></div>
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-sort="baru" data-i18n="terbaru">Terbaru</button>
+      <button class="tab" data-sort="lama" data-i18n="terlama">Terlama</button>
+      <button class="tab" data-sort="populer" data-i18n="terpopuler">Terpopuler</button>
     </div>
   </div>
-</footer>
 
-<script type="module" src="js/core.js"></script>
-<script type="module" src="js/site.js"></script>
+  <div class="ad-slot" data-ad="native"></div>
 
-<script type="module">
-  // FIX: sebelumnya pakai injectGridAds() 2x, yang nyisip iklan otomatis
-  // DI DALAM grid (#latest-grid, #popular-grid) tiap 8 video -- karena
-  // masing-masing grid memang persis berisi 8 video, ini memicu iklan
-  // muncul di kedua grid + sticky banner = 3 kemunculan sekaligus, dan
-  // posisinya "menyatu" ke dalam grid (bukan benar-benar di ATAS judul
-  // section berikutnya).
-  //
-  // Sekarang diganti jadi 2 slot Native Banner TETAP yang ditaruh
-  // langsung di HTML (lihat #ad-native-1 dan #ad-native-2 di atas) --
-  // persis di atas "Video Populer" dan di atas "Trending Tag". Jumlahnya
-  // pasti 2, tidak berubah-ubah ikut jumlah video yang tampil.
-  import { mountStickyMobileBanner, renderNativeBanner } from "./js/ads.js";
-  mountStickyMobileBanner();
-  // Angka ke-2 = tinggi crop MOBILE (px, sudah pas di 340).
-  // Angka ke-3 = tinggi tetap DESKTOP (px) -- CEK LANGSUNG di browser
-  // lebar, sesuaikan angkanya kalau masih kepotong/ruang kosong berlebih.
-  renderNativeBanner("ad-native-1", 340, 240);
-  renderNativeBanner("ad-native-2", 340, 240);
+  <div id="grid"></div>
+  <div class="pagination" id="pagination"></div>
+
+  <div class="ad-slot" data-ad="banner250"></div>
+</main>
+
+<div id="site-footer-mount"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="app.js"></script>
+<script src="ads.js"></script>
+<script src="site.js"></script>
+<script>
+  let allPosts = [];
+  let currentCategory = 'Semua';
+  let currentSort = 'baru';
+  let currentSearch = '';
+  let currentPage = 1;
+
+  function getFilteredList(){
+    let list = [...allPosts];
+    if(currentCategory !== 'Semua') list = list.filter(p => (p.kategori || 'Umum') === currentCategory);
+    if(currentSearch){
+      const q = currentSearch.toLowerCase();
+      list = list.filter(p =>
+        (p.judul || '').toLowerCase().includes(q) ||
+        (p.kategori || '').toLowerCase().includes(q) ||
+        (p.tags || '').toLowerCase().includes(q)
+      );
+    }
+    list.sort((a,b) => {
+      if(currentSort === 'populer') return (b.views || 0) - (a.views || 0);
+      return currentSort === 'baru'
+        ? new Date(b.dibuat_pada) - new Date(a.dibuat_pada)
+        : new Date(a.dibuat_pada) - new Date(b.dibuat_pada);
+    });
+    return list;
+  }
+
+  function cardHtml(p){
+    const photos = p.foto_urls || [];
+    const cover = photos[0] || '';
+    return `
+      <article class="card">
+        <a class="thumb" href="/watch/${p.short_code || p.slug || p.id}">
+          <span class="cat-tag">${escapeHtml(p.kategori || 'Umum')}</span>
+          ${photos.length > 1 ? `<span class="count">${photos.length} ${window.t ? t('foto') : 'foto'}</span>` : ''}
+          <img src="${cover}" alt="${escapeHtml(p.judul)}" loading="lazy">
+        </a>
+        <div class="card-body">
+          <h3><a href="/watch/${p.short_code || p.slug || p.id}">${escapeHtml(p.judul)}</a></h3>
+          <div class="card-footer">
+            <div class="card-meta">
+              <span class="date">${fmtDate(p.dibuat_pada)}</span>
+            </div>
+            <a class="btn-pill" href="/watch/${p.short_code || p.slug || p.id}">${window.t ? t('lihat') : 'Lihat'}</a>
+          </div>
+        </div>
+      </article>`;
+  }
+
+  function renderPosts(){
+    const grid = document.getElementById('grid');
+    const list = getFilteredList();
+
+    if(!list.length){
+      grid.innerHTML = '<div class="empty">Belum ada post yang cocok.</div>';
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(list.length / POSTS_PER_PAGE));
+    if(currentPage > totalPages) currentPage = totalPages;
+    const start = (currentPage - 1) * POSTS_PER_PAGE;
+    const pageItems = list.slice(start, start + POSTS_PER_PAGE);
+
+    grid.innerHTML = pageItems.map(cardHtml).join('');
+    renderPagination(document.getElementById('pagination'), list.length, currentPage, (p) => {
+      currentPage = p;
+      renderPosts();
+      saveState();
+      window.scrollTo({ top: document.getElementById('grid').offsetTop - 80, behavior:'smooth' });
+    });
+    saveState();
+  }
+
+  function renderChips(){
+    const cats = [...new Set(allPosts.map(p => p.kategori || 'Umum'))];
+    document.getElementById('chips').innerHTML = `
+      <button class="chip ${currentCategory === 'Semua' ? 'active':''}" data-cat="Semua">${window.t ? t('semua') : 'Semua'}</button>
+      <div class="chips-scroll" id="chips-scroll">
+        ${cats.map(c =>
+          `<button class="chip ${c === currentCategory ? 'active':''}" data-cat="${escapeHtml(c)}">${escapeHtml(c)}</button>`
+        ).join('')}
+      </div>
+    `;
+    document.querySelectorAll('.chip').forEach(btn => btn.addEventListener('click', () => {
+      currentCategory = btn.dataset.cat;
+      currentPage = 1;
+      renderChips(); renderPosts();
+    }));
+  }
+
+  function saveState(){
+    cacheSetState({ category: currentCategory, sort: currentSort, page: currentPage });
+  }
+
+  window.onSearchChange = function(q){
+    currentSearch = q;
+    currentPage = 1;
+    // Search harus lintas-kategori: kalau ada kata kunci, jangan dibatasi
+    // chip yang sedang aktif — reset ke Semua supaya hasilnya global.
+    if(q && q.trim()){
+      currentCategory = 'Semua';
+      renderChips();
+    }
+    renderPosts();
+  };
+
+  // Enter/tombol search di keyboard: selama ini form melakukan submit standar
+  // (reload halaman) karena tidak dicegah — sekarang dicegah dan langsung jalankan pencarian.
+  const searchFormEl = document.getElementById('global-search-form');
+  const searchInputEl = document.getElementById('global-search-input');
+  let forceGlobalSearch = false;
+  if(searchFormEl && searchInputEl){
+    searchFormEl.addEventListener('submit', (e) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      onSearchChange(searchInputEl.value.trim());
+      searchInputEl.blur();
+    }, true);
+    // Kalau dibuka dari halaman lain lewat index.html?search=..., isi otomatis
+    const searchFromUrl = new URLSearchParams(location.search).get('search');
+    if(searchFromUrl){
+      searchInputEl.value = searchFromUrl;
+      document.getElementById('search-panel').classList.add('open');
+      document.getElementById('search-toggle').setAttribute('aria-expanded', 'true');
+      currentSearch = searchFromUrl;
+      forceGlobalSearch = true; // dipakai di loadPosts() supaya tidak ketimpa kategori dari cache
+    }
+  }
+
+  document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    currentSort = btn.dataset.sort;
+    currentPage = 1;
+    renderPosts();
+  }));
+
+  // Tombol Home di header index.html sendiri: reset kategori ke Semua.
+  // Kategori terakhir tetap tersimpan untuk tombol Home di halaman watch/detail,
+  // jadi klik pertama dari sana balik ke kategori yang sedang dibuka, dan klik
+  // kedua (dari index.html) baru balik ke home asli (Semua).
+  const homeBtnTop = document.querySelector('.header-top .home-btn');
+  if(homeBtnTop){
+    homeBtnTop.addEventListener('click', () => {
+      cacheSetState({ category: 'Semua', sort: currentSort, page: 1 });
+    });
+  }
+
+  async function loadPosts(){
+    const grid = document.getElementById('grid');
+    const cached = cacheGetPosts();
+    const state = cacheGetState();
+    if(state){
+      currentCategory = state.category || 'Semua';
+      currentSort = state.sort || 'baru';
+      currentPage = state.page || 1;
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.sort === currentSort));
+    }
+    if(forceGlobalSearch) currentCategory = 'Semua';
+
+    if(cached && cached.posts.length){
+      allPosts = cached.posts;
+      renderChips();
+      renderPosts();
+    } else {
+      grid.innerHTML = skeletonGridHtml(8);
+    }
+
+    try{
+      const { data, error } = await sb.from('posts').select('*').order('dibuat_pada', { ascending:false });
+      if(error) throw error;
+      allPosts = data || [];
+      cacheSetPosts(allPosts);
+      renderChips();
+      renderPosts();
+    } catch(err){
+      if(!cached || !cached.posts.length){
+        grid.innerHTML = errorStateHtml('loadPosts');
+        document.getElementById('pagination').innerHTML = '';
+      }
+      // jika cache tersedia, biarkan data cache tetap tampil meski refresh terbaru gagal
+    }
+  }
+  loadPosts();
 </script>
+
+<div id="ad-sticky-mount"></div>
 </body>
 </html>
