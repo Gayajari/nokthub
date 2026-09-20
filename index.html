@@ -81,13 +81,6 @@
   <div id="hero-dots" class="hero-dots"></div>
 </section>
 
-<!-- Native Banner -- posisi "Atas Halaman" (sesuai rekomendasi resmi
-     Adsterra untuk mobile: "Top of page, 1x1 widget"). Minta Account
-     Manager Adsterra set widget kode ini jadi 1x1 supaya pas di sini. -->
-<div class="container">
-  <div id="ad-native-top" style="margin:16px 0"></div>
-</div>
-
 <main class="container">
   <section class="section" id="section-latest">
     <div class="section-head">
@@ -100,6 +93,12 @@
     <div id="latest-grid" class="video-grid"></div>
   </section>
 
+  <!-- Native Banner #1 -- posisi tetap, PERSIS di atas "Video Populer".
+       Ini slot statis (bukan disisip otomatis di tengah grid seperti
+       sebelumnya), jadi jumlah & posisinya presisi, tidak ikut berubah
+       tergantung berapa banyak video yang ditampilkan. -->
+  <div id="ad-native-1" style="margin:8px 0 0"></div>
+
   <section class="section" id="section-popular">
     <div class="section-head">
       <div>
@@ -111,6 +110,9 @@
     <div id="popular-grid" class="video-grid"></div>
   </section>
 
+  <!-- Native Banner #2 -- posisi tetap, PERSIS di atas "Trending Tag". -->
+  <div id="ad-native-2" style="margin:8px 0 0"></div>
+
   <section class="section" id="section-trending-tags">
     <div class="section-head"><h2>Trending Tag</h2></div>
     <div id="trending-tags"></div>
@@ -120,12 +122,6 @@
     <div class="section-head"><h2>Trending Kategori</h2></div>
     <div id="trending-categories"></div>
   </section>
-
-  <!-- Native Banner -- posisi "Bawah Halaman" (sesuai rekomendasi resmi
-       Adsterra untuk mobile: "Bottom of page, 1x4 widget"). Minta Account
-       Manager set widget kode ini jadi 1x4 untuk hasil terbaik di sini
-       (kalau mau beda dari widget di atas, perlu kode Native terpisah). -->
-  <div id="ad-native-bottom" style="margin:20px 0"></div>
 </main>
 
 <footer class="site-footer">
@@ -148,15 +144,24 @@
 <script type="module" src="js/site.js"></script>
 
 <script type="module">
-  // PENYEMPURNAAN (sesuai dokumentasi resmi Adsterra tentang penempatan
-  // Native Ads): posisi dipindah dari "tengah-tengah antar section" jadi
-  // "Atas Halaman" dan "Bawah Halaman" -- ini persis rekomendasi resmi
-  // mereka untuk pengunjung mobile ("Top of page" & "Bottom of page").
-  // Total tetap 2 slot Native Banner, plus 1 sticky banner (jenis beda).
+  // FIX: sebelumnya pakai injectGridAds() 2x, yang nyisip iklan otomatis
+  // DI DALAM grid (#latest-grid, #popular-grid) tiap 8 video -- karena
+  // masing-masing grid memang persis berisi 8 video, ini memicu iklan
+  // muncul di kedua grid + sticky banner = 3 kemunculan sekaligus, dan
+  // posisinya "menyatu" ke dalam grid (bukan benar-benar di ATAS judul
+  // section berikutnya).
+  //
+  // Sekarang diganti jadi 2 slot Native Banner TETAP yang ditaruh
+  // langsung di HTML (lihat #ad-native-1 dan #ad-native-2 di atas) --
+  // persis di atas "Video Populer" dan di atas "Trending Tag". Jumlahnya
+  // pasti 2, tidak berubah-ubah ikut jumlah video yang tampil.
   import { mountStickyMobileBanner, renderNativeBanner } from "./js/ads.js";
   mountStickyMobileBanner();
-  renderNativeBanner("ad-native-top");
-  renderNativeBanner("ad-native-bottom");
+  // Angka ke-2 = tinggi crop MOBILE (px, sudah pas di 340).
+  // Angka ke-3 = tinggi tetap DESKTOP (px) -- CEK LANGSUNG di browser
+  // lebar, sesuaikan angkanya kalau masih kepotong/ruang kosong berlebih.
+  renderNativeBanner("ad-native-1", 340, 250);
+  renderNativeBanner("ad-native-2", 340, 250);
 </script>
 </body>
 </html>
