@@ -752,19 +752,6 @@ async function generateUniqueVideoCode() {
   throw new Error("Gagal membuat kode unik, coba lagi.");
 }
 
-function showSavedMessage(msgEl, prefix, url) {
-  msgEl.textContent = prefix;
-  if (url) {
-    msgEl.appendChild(document.createTextNode(" Link: "));
-    const a = document.createElement("a");
-    a.href = url;
-    a.textContent = url;
-    a.target = "_blank";
-    a.rel = "noopener";
-    msgEl.appendChild(a);
-  }
-}
-
 // ============================================================
 // FORM VIDEO
 // ============================================================
@@ -832,8 +819,6 @@ document.addEventListener("click", async (e) => {
   }
 
   try {
-    let savedPrefix = "";
-    let savedLink = "";
     if (editingVideoId) {
       await updateDoc(doc(db, "videos", editingVideoId), {
         title, slug: slugify(title), description, category, tags,
@@ -842,8 +827,7 @@ document.addEventListener("click", async (e) => {
       });
       await upsertCategory(category);
       await upsertTags(tags);
-      savedPrefix = "Video berhasil diupdate.";
-      savedLink = `${location.origin}/w/${editingVideoId}`;
+      msg.textContent = "Video berhasil diupdate.";
     } else {
       // Video baru: ID dokumen = kode 6 karakter, link tonton = /w/kode
       const code = await generateUniqueVideoCode();
@@ -855,14 +839,10 @@ document.addEventListener("click", async (e) => {
       });
       await upsertCategory(category);
       await upsertTags(tags);
-      savedPrefix = "Video berhasil disimpan.";
-      savedLink = `${location.origin}/w/${code}`;
+      msg.textContent = "Video berhasil disimpan.";
     }
     resetForm();
     loadVideoTable();
-    // resetForm() mengosongkan #upload-msg, jadi pesan sukses + link
-    // ditampilkan SETELAH reset supaya tidak langsung hilang.
-    showSavedMessage(msg, savedPrefix, savedLink);
   } catch (err) {
     msg.textContent = "Gagal menyimpan: " + err.message;
   }

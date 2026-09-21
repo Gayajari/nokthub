@@ -218,31 +218,14 @@ function refreshSendButtonState() {
 }
 
 async function loadVideo() {
-  const titleEl = document.getElementById("video-title");
-  if (!videoId) { titleEl.textContent = "Video tidak ditemukan"; return; }
-
-  // Rules Firestore menolak (permission-denied) pembacaan dokumen yang tidak
-  // ada / masih draft oleh non-admin -- tangkap di sini supaya pengunjung
-  // tetap melihat pesan "Video tidak ditemukan", bukan halaman kosong.
-  let snap;
-  try {
-    snap = await getDoc(doc(db, "videos", videoId));
-  } catch (err) {
-    console.error("Gagal memuat video:", err.code, err.message);
-    titleEl.textContent = "Video tidak ditemukan";
-    return;
-  }
+  if (!videoId) return;
+  const ref = doc(db, "videos", videoId);
+  const snap = await getDoc(ref);
   if (!snap.exists()) {
-    titleEl.textContent = "Video tidak ditemukan";
+    document.getElementById("video-title").textContent = "Video tidak ditemukan";
     return;
   }
   videoData = { id: snap.id, ...snap.data() };
-
-  // Rapikan link lama (watch?id=xxx) jadi /w/xxx tanpa reload halaman.
-  if (!location.pathname.startsWith("/w/")) {
-    history.replaceState(null, "", videoUrl(videoData.id));
-  }
-
   await renderVideoInfo();
   updateCommentBoxState();
   listenVideoStats();
