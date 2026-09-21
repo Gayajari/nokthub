@@ -722,6 +722,50 @@ async function upsertTags(tags) {
 }
 
 // ============================================================
+// KODE VIDEO 6 KARAKTER (link tonton: domain/w/kode)
+// Video baru memakai kode acak 6 karakter (huruf besar, huruf kecil, angka)
+// sebagai ID dokumen di koleksi "videos". Video lama tetap memakai ID
+// lamanya dan tetap bisa dibuka lewat domain/w/<idLama>.
+// ============================================================
+const VIDEO_CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const VIDEO_CODE_LENGTH = 6;
+
+function randomVideoCode(len = VIDEO_CODE_LENGTH) {
+  let out = "";
+  while (out.length < len) {
+    const buf = new Uint8Array(len * 2);
+    crypto.getRandomValues(buf);
+    for (const b of buf) {
+      // 248 = 62 * 4 -> membuang nilai sisa supaya tiap karakter peluangnya sama
+      if (b < 248 && out.length < len) out += VIDEO_CODE_CHARS[b % 62];
+    }
+  }
+  return out;
+}
+
+async function generateUniqueVideoCode() {
+  for (let i = 0; i < 10; i++) {
+    const code = randomVideoCode();
+    const snap = await getDoc(doc(db, "videos", code));
+    if (!snap.exists()) return code;
+  }
+  throw new Error("Gagal membuat kode unik, coba lagi.");
+}
+
+function showSavedMessage(msgEl, prefix, url) {
+  msgEl.textContent = prefix;
+  if (url) {
+    msgEl.appendChild(document.createTextNode(" Link: "));
+    const a = document.createElement("a");
+    a.href = url;
+    a.textContent = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    msgEl.appendChild(a);
+  }
+}
+
+// ============================================================
 // FORM VIDEO
 // ============================================================
 let editingVideoId = null;
@@ -788,6 +832,8 @@ document.addEventListener("click", async (e) => {
   }
 
   try {
+    let savedPrefix = "";
+    let savedLink = "";
     if (editingVideoId) {
       await updateDoc(doc(db, "videos", editingVideoId), {
         title, slug: slugify(title), description, category, tags,
@@ -796,9 +842,12 @@ document.addEventListener("click", async (e) => {
       });
       await upsertCategory(category);
       await upsertTags(tags);
-      msg.textContent = "Video berhasil diupdate.";
+      savedPrefix = "Video berhasil diupdate.";
+      savedLink = `${location.origin}/w/${editingVideoId}`;
     } else {
-      await addDoc(collection(db, "videos"), {
+      // Video baru: ID dokumen = kode 6 karakter, link tonton = /w/kode
+      const code = await generateUniqueVideoCode();
+      await setDoc(doc(db, "videos", code), {
         title, slug: slugify(title), description, category, tags,
         thumbnail, embedUrl, status, uploadedAt: serverTimestamp(), adminName,
         seoTitle, seoDescription, metaKeywords,
@@ -806,10 +855,14 @@ document.addEventListener("click", async (e) => {
       });
       await upsertCategory(category);
       await upsertTags(tags);
-      msg.textContent = "Video berhasil disimpan.";
+      savedPrefix = "Video berhasil disimpan.";
+      savedLink = `${location.origin}/w/${code}`;
     }
     resetForm();
     loadVideoTable();
+    // resetForm() mengosongkan #upload-msg, jadi pesan sukses + link
+    // ditampilkan SETELAH reset supaya tidak langsung hilang.
+    showSavedMessage(msg, savedPrefix, savedLink);
   } catch (err) {
     msg.textContent = "Gagal menyimpan: " + err.message;
   }

@@ -24,6 +24,12 @@ const DEFAULT_LOGO_URL = "https://i.ibb.co.com/nss27bKz/20260716-103634.png";
 const PLACEHOLDER_THUMB = 'https://via.placeholder.com/320x180/141416/9A9A9E?text=No+Image';
 let siteSettings = {};
 
+// Link halaman tonton: domain/w/kode (video baru = kode 6 karakter,
+// video lama = ID lamanya). Path absolut, jadi aman dipakai dari halaman mana pun.
+function videoUrl(id) {
+  return `/w/${id}`;
+}
+
 async function loadSiteSettings() {
   try {
     const snap = await getDoc(doc(db, "settings", "site"));
@@ -206,7 +212,7 @@ window.__nokthubThumbFallback = function (imgEl, videoId) {
 };
 
 function renderVideoCard(v) {
-  const url = `watch.html?id=${v.id}`;
+  const url = videoUrl(v.id);
   const chain = buildThumbChain(v);
   return `
     <a class="video-card" href="${url}">
@@ -289,7 +295,7 @@ function renderHero() {
   if (!slides.length) return;
 
   wrap.innerHTML = slides.map((v,i) => `
-    <a class="hero-slide ${i===0?'active':''}" data-i="${i}" href="watch.html?id=${v.id}"
+    <a class="hero-slide ${i===0?'active':''}" data-i="${i}" href="${videoUrl(v.id)}"
        style="background-image:url('${buildThumbChain(v)[0]}');transition:opacity .6s ease, transform .6s ease;">
       <div class="hero-info">
         <div class="eyebrow">Video Terbaru</div>
@@ -392,7 +398,7 @@ function initSearch() {
       }).slice(0, 8);
 
       resultsBox.innerHTML = matches.map(v => `
-        <a class="search-result-item" href="watch.html?id=${v.id}">
+        <a class="search-result-item" href="${videoUrl(v.id)}">
           <img src="${buildThumbChain(v)[0]}" alt="">
           <div>
             <div style="font-size:.85rem">${escapeHtml(v.title)}</div>
@@ -494,7 +500,7 @@ const LISTING_PAGE_SIZE = 12;
 
 function renderListingCard(v) {
   return `
-    <a class="video-card" href="watch.html?id=${v.id}">
+    <a class="video-card" href="${videoUrl(v.id)}">
       <div class="thumb-wrap"><img src="${v.thumbnail}" alt="${escapeHtml(v.title)}" loading="lazy"></div>
       <div class="card-body">
         <div class="card-title">${escapeHtml(v.title)}</div>
@@ -575,4 +581,4 @@ async function initPopularListing() {
   renderListingPage();
 }
 
-export { computePopularScore, renderVideoCard, escapeHtml, PAGE_SIZE, buildThumbChain, initCategoryListing, initTagListing, initSearchListing, initLatestListing, initPopularListing };
+export { videoUrl, computePopularScore, renderVideoCard, escapeHtml, PAGE_SIZE, buildThumbChain, initCategoryListing, initTagListing, initSearchListing, initLatestListing, initPopularListing };

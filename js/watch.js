@@ -6,7 +6,7 @@ import {
   deleteDoc, query, where, orderBy, limit, increment, serverTimestamp,
   onAuthStateChanged, onSnapshot, getAvatarForUid, DEFAULT_AVATARS
 } from "./core.js";
-import { escapeHtml, renderVideoCard, computePopularScore, buildThumbChain } from "./site.js";
+import { escapeHtml, renderVideoCard, computePopularScore, buildThumbChain, videoUrl } from "./site.js";
 
 // ============================================================
 // Universal Embed Player (dulu player.js, digabung ke sini)
@@ -170,8 +170,14 @@ async function resolveEmbedUrl(embedUrl) {
   return embedUrl;
 }
 
-const params = new URLSearchParams(window.location.search);
-const videoId = params.get("id");
+// ID video dibaca dari path /w/kode (format baru). Link lama
+// watch.html?id=xxx tetap didukung supaya link yang sudah tersebar tidak mati.
+function resolveVideoId() {
+  const m = location.pathname.match(/^\/w\/([A-Za-z0-9_-]+)\/?$/);
+  if (m) return m[1];
+  return new URLSearchParams(location.search).get("id");
+}
+const videoId = resolveVideoId();
 let currentUser = null;
 let videoData = null;
 let unsubscribeStats = null;
@@ -212,14 +218,31 @@ function refreshSendButtonState() {
 }
 
 async function loadVideo() {
-  if (!videoId) return;
-  const ref = doc(db, "videos", videoId);
-  const snap = await getDoc(ref);
+  const titleEl = document.getElementById("video-title");
+  if (!videoId) { titleEl.textContent = "Video tidak ditemukan"; return; }
+
+  // Rules Firestore menolak (permission-denied) pembacaan dokumen yang tidak
+  // ada / masih draft oleh non-admin -- tangkap di sini supaya pengunjung
+  // tetap melihat pesan "Video tidak ditemukan", bukan halaman kosong.
+  let snap;
+  try {
+    snap = await getDoc(doc(db, "videos", videoId));
+  } catch (err) {
+    console.error("Gagal memuat video:", err.code, err.message);
+    titleEl.textContent = "Video tidak ditemukan";
+    return;
+  }
   if (!snap.exists()) {
-    document.getElementById("video-title").textContent = "Video tidak ditemukan";
+    titleEl.textContent = "Video tidak ditemukan";
     return;
   }
   videoData = { id: snap.id, ...snap.data() };
+
+  // Rapikan link lama (watch?id=xxx) jadi /w/xxx tanpa reload halaman.
+  if (!location.pathname.startsWith("/w/")) {
+    history.replaceState(null, "", videoUrl(videoData.id));
+  }
+
   await renderVideoInfo();
   updateCommentBoxState();
   listenVideoStats();
@@ -236,7 +259,7 @@ async function renderVideoInfo() {
   document.getElementById("og-title").setAttribute("content", v.seoTitle || v.title);
   document.getElementById("og-desc").setAttribute("content", v.description || "");
   document.getElementById("og-image").setAttribute("content", v.thumbnail || "");
-  document.getElementById("canonical-link").setAttribute("href", `${location.origin}/watch.html?id=${v.id}`);
+  document.getElementById("canonical-link").setAttribute("href", `${location.origin}${videoUrl(v.id)}`);
 
   document.getElementById("json-ld").textContent = JSON.stringify({
     "@context": "https://schema.org",
@@ -520,7 +543,7 @@ async function loadRelated() {
   currentRelatedItems = [...fixedTop, ...rotationPicks].slice(0, RELATED_SHOW_COUNT);
 
   wrap.innerHTML = currentRelatedItems.map(v => `
-    <a href="watch.html?id=${v.id}" style="display:flex;gap:10px;text-decoration:none;color:inherit">
+    <a href="${videoUrl(v.id)}" style="display:flex;gap:10px;text-decoration:none;color:inherit">
       <img src="${buildThumbChain(v)[0]}" data-fallback-step="0"
            onerror="window.__nokthubRelatedThumbFallback(this, '${v.id}')"
            style="width:120px;aspect-ratio:16/9;object-fit:cover;border-radius:6px" loading="lazy">
