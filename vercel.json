@@ -2,7 +2,7 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/w/:code", "destination": "/watch.html" }
+    { "source": "/w/:code", "destination": "/watch" }
   ],
   "headers": [
     {
