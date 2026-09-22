@@ -1,14 +1,16 @@
 // ============================================================
-// NOKT HUB — Core (Firebase + Auth + Icons)
+// NOKT HUB — Core (Firebase + Auth + Icons + Supabase Thumbnail Backup)
 // ============================================================
-// File ini GABUNGAN dari 3 file yang dulu terpisah:
+// File ini GABUNGAN dari beberapa bagian:
 //   - firebase-config.js (koneksi & export Firebase)
 //   - auth.js            (login/daftar/logout, avatar default,
 //                          binding tombol Login/Profil di navbar)
 //   - icons.js           (pustaka ikon kategori)
+//   - supabase-thumb.js  (BARU: backup thumbnail ke Supabase Storage,
+//                          dipakai BARENG ImgBB, bukan pengganti)
 // Digabung supaya lebih sedikit file yang perlu dibuka-tutup saat
-// maintenance -- fungsinya PERSIS SAMA seperti sebelumnya, cuma satu
-// file sekarang, bukan tiga.
+// maintenance -- fungsi lama PERSIS SAMA seperti sebelumnya, cuma
+// ditambah bagian Supabase di bawah.
 // ============================================================
 
 // ---------- 1. FIREBASE SETUP ----------
@@ -56,10 +58,16 @@ export {
 // users            { uid, name, email, photoURL, role: "user"|"admin",
 //                    createdAt, emailVerified }
 // videos           { title, slug, description, category, tags: [],
-//                    thumbnail, embedUrl, embedType, status: "draft"|"publish",
+//                    thumbnail, thumbnail_supabase, supabase_file_path,
+//                    embedUrl, embedType, status: "draft"|"publish",
 //                    uploadedAt, adminName, seoTitle, seoDescription,
 //                    metaKeywords, viewCount, likeCount, shareCount,
 //                    searchTagCount, popularScore }
+//   -> thumbnail            : URL thumbnail utama (ImgBB / host lain)
+//   -> thumbnail_supabase   : URL publik thumbnail cadangan (Supabase)
+//   -> supabase_file_path   : nama file di bucket Supabase (utk hapus)
+//      Dua field ini bisa TIDAK ADA pada dokumen lama -- selalu akses
+//      dengan fallback "|| ''" / "|| null", jangan anggap selalu ada.
 // categories       { name, slug, videoCount, icon? }
 // tags             { name, slug, searchCount, videoCount }
 // comments         { videoId, uid, userName, userPhoto, text, parentId,
@@ -76,6 +84,84 @@ export {
 //                    hideCategoryIcons }
 // notifications    { uid, title, message, read, createdAt }
 // ============================================================
+
+
+// ---------- 1.5 SUPABASE SETUP (thumbnail backup) ----------
+// Dipakai BARENG ImgBB (thumbnail utama), bukan pengganti. Firestore
+// tetap jadi database utama -- Supabase Storage cuma tempat simpan
+// file cadangan thumbnail.
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
+// TODO ISI INI: ambil dari Supabase Dashboard -> Project Settings -> API.
+// - url     : "Project URL"
+// - anonKey : "anon public" key (BUKAN "service_role" -- jangan pernah
+//             taruh service_role key di kode frontend/browser).
+// - bucket  : nama bucket Storage tempat thumbnail cadangan disimpan.
+//             Buat dulu bucket ini di Supabase Dashboard -> Storage,
+//             set "Public bucket" = ON supaya thumbnail bisa diakses
+//             langsung lewat <img src="..."> di website.
+const supabaseConfig = {
+  url: "https://rfojevxjykqgdmpmtlrp.supabase.co",
+  anonKey: "sb_publishable_qMIcV6-7Ub0f-7e3HECC7Q_Yg-Ajllt",
+  bucket: "thumbnails"
+};
+
+export const supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey);
+export const SUPABASE_THUMBNAIL_BUCKET = supabaseConfig.bucket;
+
+// ---------- Upload thumbnail cadangan ke Supabase Storage ----------
+// Terima File atau Blob apa saja (tidak ada validasi/batas ukuran --
+// semua file diproses dengan cara yang sama, sesuai keputusan produk).
+// Mengembalikan { url, path }:
+//   - url  -> disimpan sebagai field "thumbnail_supabase" di Firestore
+//   - path -> disimpan sebagai field "supabase_file_path", dipakai
+//             untuk menghapus file ini nanti (saat thumbnail diganti
+//             atau video dihapus).
+export async function uploadThumbnailToSupabase(fileOrBlob, originalName = "thumbnail.jpg") {
+  const rawExt = (originalName.split(".").pop() || "jpg").toLowerCase();
+  const safeExt = /^[a-z0-9]+$/.test(rawExt) ? rawExt : "jpg";
+  // Nama file unik (timestamp + random) supaya tidak ada tabrakan nama
+  // antar-upload, sesuai permintaan "buat nama/path file yang unik".
+  const uniquePath = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${safeExt}`;
+
+  const { error: uploadError } = await supabase
+    .storage
+    .from(SUPABASE_THUMBNAIL_BUCKET)
+    .upload(uniquePath, fileOrBlob, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: fileOrBlob.type || "image/jpeg"
+    });
+
+  if (uploadError) {
+    throw new Error("Upload Supabase gagal: " + uploadError.message);
+  }
+
+  const { data: publicUrlData } = supabase
+    .storage
+    .from(SUPABASE_THUMBNAIL_BUCKET)
+    .getPublicUrl(uniquePath);
+
+  return { url: publicUrlData.publicUrl, path: uniquePath };
+}
+
+// ---------- Hapus thumbnail cadangan dari Supabase Storage ----------
+// Aman dipanggil dengan path kosong/null/undefined -- langsung return
+// tanpa error, supaya kompatibel dengan dokumen video lama yang belum
+// punya field "supabase_file_path".
+export async function deleteThumbnailFromSupabase(path) {
+  if (!path) return;
+  const { error } = await supabase
+    .storage
+    .from(SUPABASE_THUMBNAIL_BUCKET)
+    .remove([path]);
+  if (error) {
+    // Dilempar lagi (bukan ditelan diam-diam) supaya pemanggil bisa
+    // memberi tahu admin secara eksplisit kalau file backup mungkin
+    // masih tertinggal di Supabase.
+    throw new Error("Hapus file Supabase gagal: " + error.message);
+  }
+}
 
 
 // ---------- 2. AUTHENTICATION ----------
