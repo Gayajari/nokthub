@@ -190,9 +190,23 @@ function extractAutoThumb(embedUrl) {
   return null;
 }
 
+// ============================================================
+// RANTAI FALLBACK THUMBNAIL
+// ============================================================
+// Urutan prioritas SEKARANG (BARU: menambahkan thumbnail_supabase
+// sebagai langkah ke-2, persis setelah ImgBB dan sebelum fallback
+// lain -- sebelumnya field ini ada di data video tapi TIDAK PERNAH
+// dipakai di halaman pengunjung sama sekali):
+//   1. thumbnail            -> ImgBB (utama)
+//   2. thumbnail_supabase   -> Supabase Storage (cadangan admin)
+//   3. auto-thumb dari embedUrl (YouTube/Vimeo, kalau embed-nya cocok)
+//   4. defaultThumbnail     -> "Thumbnail Cadangan Situs" di Pengaturan
+//   5. PLACEHOLDER_THUMB    -> gambar generik terakhir, supaya tidak
+//                              pernah benar-benar pecah/broken image
 function buildThumbChain(v) {
   const chain = [];
   if (v.thumbnail) chain.push(normalizeThumbLink(v.thumbnail));
+  if (v.thumbnail_supabase) chain.push(v.thumbnail_supabase);
   const auto = extractAutoThumb(v.embedUrl);
   if (auto) chain.push(auto);
   if (siteSettings.defaultThumbnail) chain.push(siteSettings.defaultThumbnail);
@@ -200,26 +214,45 @@ function buildThumbChain(v) {
   return chain;
 }
 
-window.__nokthubThumbFallback = function (imgEl, videoId) {
-  const v = allPublishedVideos.find(x => x.id === videoId);
-  if (!v) { imgEl.src = PLACEHOLDER_THUMB; return; }
-  const chain = buildThumbChain(v);
+// BARU: rantai fallback disematkan LANGSUNG di elemen <img> lewat
+// atribut data-thumb-chain (JSON), bukan dicari ulang dari videoId di
+// array global allPublishedVideos. Sebelumnya cara lama ini gagal
+// diam-diam di halaman listing (category/tag/search/latest/popular)
+// karena allPublishedVideos cuma diisi di halaman home -- di halaman
+// listing array itu kosong, jadi fallback tidak pernah ketemu videonya.
+// Dengan disematkan di elemen sendiri, fallback selalu jalan di
+// halaman mana pun tanpa bergantung pada state global.
+window.__nokthubThumbFallback = function (imgEl) {
+  let chain = [];
+  try { chain = JSON.parse(imgEl.dataset.thumbChain || "[]"); } catch (e) { chain = []; }
   const step = parseInt(imgEl.dataset.fallbackStep || "0", 10) + 1;
   if (chain[step]) {
-    imgEl.dataset.fallbackStep = step;
+    imgEl.dataset.fallbackStep = String(step);
     imgEl.src = chain[step];
+  } else {
+    // Sudah di ujung rantai (bahkan PLACEHOLDER_THUMB pun gagal) --
+    // matikan onerror supaya tidak looping.
+    imgEl.onerror = null;
   }
 };
 
+// Helper bersama: bikin markup <img> thumbnail video lengkap dengan
+// rantai fallback-nya, dipakai renderVideoCard & renderListingCard
+// supaya perilakunya konsisten di semua halaman.
+function thumbImgHtml(v, extraAttrs = "") {
+  const chain = buildThumbChain(v);
+  const chainAttr = JSON.stringify(chain).replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+  return `<img src="${chain[0]}" data-fallback-step="0" data-thumb-chain='${chainAttr}'
+             onerror="window.__nokthubThumbFallback(this)"
+             alt="${escapeHtml(v.title)}" loading="lazy" ${extraAttrs}>`;
+}
+
 function renderVideoCard(v) {
   const url = videoUrl(v.id);
-  const chain = buildThumbChain(v);
   return `
     <a class="video-card" href="${url}">
       <div class="thumb-wrap">
-        <img src="${chain[0]}" data-fallback-step="0"
-             onerror="window.__nokthubThumbFallback(this, '${v.id}')"
-             alt="${escapeHtml(v.title)}" loading="lazy">
+        ${thumbImgHtml(v)}
       </div>
       <div class="card-body">
         <div class="card-title">${escapeHtml(v.title)}</div>
@@ -285,6 +318,24 @@ function emptyState(msg){
   return `<p style="color:var(--text-muted);padding:20px 0">${msg}</p>`;
 }
 
+// BARU: hero slider pakai CSS background-image, yang TIDAK punya
+// event "onerror" bawaan seperti <img>. Supaya tetap kebagian rantai
+// fallback yang sama (termasuk Supabase), setiap slide sekarang
+// mem-preload gambarnya lewat objek Image() di JS -- kalau gagal,
+// otomatis coba URL berikutnya di chain sebelum akhirnya diterapkan
+// sebagai background-image.
+function loadHeroSlideBackground(slideEl, chain) {
+  let step = 0;
+  const tryNext = () => {
+    if (!chain[step]) return; // rantai habis, biarkan background kosong
+    const probe = new Image();
+    probe.onload = () => { slideEl.style.backgroundImage = `url('${chain[step]}')`; };
+    probe.onerror = () => { step++; tryNext(); };
+    probe.src = chain[step];
+  };
+  tryNext();
+}
+
 function renderHero() {
   const wrap = document.getElementById("hero-slider");
   const dotsWrap = document.getElementById("hero-dots");
@@ -296,7 +347,7 @@ function renderHero() {
 
   wrap.innerHTML = slides.map((v,i) => `
     <a class="hero-slide ${i===0?'active':''}" data-i="${i}" href="${videoUrl(v.id)}"
-       style="background-image:url('${buildThumbChain(v)[0]}');transition:opacity .6s ease, transform .6s ease;">
+       style="transition:opacity .6s ease, transform .6s ease;">
       <div class="hero-info">
         <div class="eyebrow">Video Terbaru</div>
         <h1>${escapeHtml(v.title)}</h1>
@@ -304,6 +355,11 @@ function renderHero() {
         <span class="btn">Tonton Sekarang</span>
       </div>
     </a>`).join("");
+
+  // Pasang background lewat preload+fallback, bukan langsung di string HTML.
+  wrap.querySelectorAll(".hero-slide").forEach((slideEl, i) => {
+    loadHeroSlideBackground(slideEl, buildThumbChain(slides[i]));
+  });
 
   dotsWrap.innerHTML = slides.map((_,i) =>
     `<span data-i="${i}" class="${i===0?'active':''}"></span>`).join("");
@@ -399,7 +455,7 @@ function initSearch() {
 
       resultsBox.innerHTML = matches.map(v => `
         <a class="search-result-item" href="${videoUrl(v.id)}">
-          <img src="${buildThumbChain(v)[0]}" alt="">
+          ${thumbImgHtml(v)}
           <div>
             <div style="font-size:.85rem">${escapeHtml(v.title)}</div>
             <div style="font-size:.72rem;color:var(--text-muted)">${escapeHtml(v.category||'')}</div>
@@ -498,10 +554,17 @@ let listingFullList = [];
 let listingCurrentPage = 1;
 const LISTING_PAGE_SIZE = 12;
 
+// BARU: sebelumnya fungsi ini langsung <img src="${v.thumbnail}">
+// tanpa fallback SAMA SEKALI -- kalau ImgBB mati, gambar di halaman
+// category/tag/search/latest/popular langsung pecah (broken image
+// icon), beda dari renderVideoCard yang sudah punya rantai fallback.
+// Sekarang dipakaikan thumbImgHtml() yang sama, supaya perilakunya
+// identik dengan kartu video di homepage (ImgBB -> Supabase -> auto
+// thumb -> thumbnail cadangan situs -> placeholder).
 function renderListingCard(v) {
   return `
     <a class="video-card" href="${videoUrl(v.id)}">
-      <div class="thumb-wrap"><img src="${v.thumbnail}" alt="${escapeHtml(v.title)}" loading="lazy"></div>
+      <div class="thumb-wrap">${thumbImgHtml(v)}</div>
       <div class="card-body">
         <div class="card-title">${escapeHtml(v.title)}</div>
         <div class="card-meta">
