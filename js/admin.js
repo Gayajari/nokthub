@@ -328,6 +328,149 @@ function captureFrameFromVideoUrl(url) {
   });
 }
 
+// ============================================================
+// KOLASE 3-FRAME (BARU) -- untuk video vertikal 9:16 (TikTok/Shorts)
+// yang perlu tampil di frame 16:9 (homepage dkk, seperti YouTube).
+// Ambil 3 frame dari video pada 3 titik waktu berbeda, gabung jadi
+// 1 gambar 16:9 berisi 3 potongan vertikal sama besar berdampingan.
+// ============================================================
+const COLLAGE_WIDTH = 640;
+const COLLAGE_HEIGHT = 360;
+const COLLAGE_SLOT_WIDTH = COLLAGE_WIDTH / 3;
+// 20% / 50% / 80% durasi -- menghindari frame hitam/blank yang sering
+// muncul persis di detik pertama atau terakhir video.
+const COLLAGE_TIMESTAMPS_RATIO = [0.2, 0.5, 0.8];
+
+function loadVideoForCapture(url) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.muted = true;
+    video.preload = "auto";
+
+    const cleanup = () => {
+      video.removeEventListener("loadeddata", onReady);
+      video.removeEventListener("error", onError);
+    };
+    const onReady = () => { cleanup(); resolve(video); };
+    const onError = () => { cleanup(); reject(new Error("Video gagal dimuat (cek link video atau apakah host-nya mengizinkan akses lintas-domain/CORS).")); };
+
+    video.addEventListener("loadeddata", onReady);
+    video.addEventListener("error", onError);
+    video.src = url;
+
+    setTimeout(() => { cleanup(); reject(new Error("Video terlalu lama dimuat, coba lagi.")); }, 15000);
+  });
+}
+
+function seekVideoTo(video, time) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("error", onError);
+    };
+    const onSeeked = () => { cleanup(); resolve(); };
+    const onError = () => { cleanup(); reject(new Error("Gagal mengambil frame video di salah satu titik waktu.")); };
+
+    video.addEventListener("seeked", onSeeked);
+    video.addEventListener("error", onError);
+    try { video.currentTime = time; }
+    catch (e) { cleanup(); reject(e); }
+  });
+}
+
+// Gambar "source" (video/canvas/image) ke area tujuan dengan cara
+// object-fit:cover -- dipotong dari tengah supaya tidak gepeng/melar,
+// mirip perilaku CSS "cover".
+function drawCover(ctx, source, srcW, srcH, dx, dy, dWidth, dHeight) {
+  const srcRatio = srcW / srcH;
+  const dstRatio = dWidth / dHeight;
+  let sx, sy, sw, sh;
+  if (srcRatio > dstRatio) {
+    sh = srcH; sw = sh * dstRatio; sx = (srcW - sw) / 2; sy = 0;
+  } else {
+    sw = srcW; sh = sw / dstRatio; sx = 0; sy = (srcH - sh) / 2;
+  }
+  ctx.drawImage(source, sx, sy, sw, sh, dx, dy, dWidth, dHeight);
+}
+
+async function generateCollageThumbnail(videoUrl) {
+  const video = await loadVideoForCapture(videoUrl);
+  const duration = video.duration;
+  if (!duration || !isFinite(duration)) {
+    throw new Error("Durasi video tidak terbaca, coba video lain.");
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = COLLAGE_WIDTH;
+  canvas.height = COLLAGE_HEIGHT;
+  const ctx = canvas.getContext("2d");
+
+  for (let i = 0; i < COLLAGE_TIMESTAMPS_RATIO.length; i++) {
+    await seekVideoTo(video, duration * COLLAGE_TIMESTAMPS_RATIO[i]);
+    drawCover(ctx, video, video.videoWidth, video.videoHeight, i * COLLAGE_SLOT_WIDTH, 0, COLLAGE_SLOT_WIDTH, COLLAGE_HEIGHT);
+  }
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("Gagal membuat gambar kolase dari canvas."));
+    }, "image/jpeg", 0.9);
+  });
+}
+
+// Tombol "Buat Thumbnail Kolase" -- ambil link dari kolom Link Embed
+// Video, buat kolase, lalu masuk ke alur upload thumbnail yang SAMA
+// seperti upload file biasa: ImgBB diupload langsung, backup Supabase
+// DITUNDA (disimpan di pendingThumbnailBlob) sampai admin klik Simpan.
+document.addEventListener("click", async (e) => {
+  if (e.target.id !== "btn-generate-collage") return;
+  const embedUrl = document.getElementById("f-embed").value.trim();
+  const status = document.getElementById("collage-status");
+  const urlInput = document.getElementById("f-thumb");
+  const preview = document.getElementById("thumb-preview");
+  const thumbStatus = document.getElementById("thumb-upload-status");
+
+  if (!embedUrl) {
+    status.textContent = "Isi dulu Link Embed Video (atau upload video dari galeri) sebelum bikin kolase.";
+    return;
+  }
+  const isDirectVideoFile = /\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(embedUrl);
+  if (!isDirectVideoFile) {
+    status.textContent = "Kolase cuma bisa dibuat dari link file video langsung (.mp4/.webm/.mov/.m4v), bukan link embed platform seperti YouTube/host video.";
+    return;
+  }
+
+  const btn = e.target;
+  btn.disabled = true;
+  status.textContent = "Mengambil 3 frame dari video...";
+  try {
+    const collageBlob = await generateCollageThumbnail(embedUrl);
+
+    status.textContent = "Frame berhasil diambil. Mengupload kolase ke ImgBB...";
+    preview.innerHTML = "";
+    const s = await getSiteSettings(true);
+    const url = await uploadToHost(collageBlob, {
+      endpoint: s.thumbEndpoint, apiKey: s.thumbApiKey, urlField: s.thumbField,
+      fileFieldName: "image", authType: "query", fileName: "collage.jpg"
+    });
+    urlInput.value = url;
+    preview.innerHTML = `<img src="${url}" alt="preview thumbnail kolase">`;
+
+    // Backup Supabase ditunda, sama seperti upload thumbnail file biasa --
+    // baru benar-benar diupload saat tombol Simpan/Update ditekan.
+    pendingThumbnailBlob = collageBlob;
+    pendingThumbnailFileName = "collage.jpg";
+
+    status.textContent = "Kolase berhasil dibuat & diupload ke ImgBB.";
+    thumbStatus.textContent = "";
+  } catch (err) {
+    status.textContent = "Gagal membuat kolase: " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // BARU: sekarang mengembalikan { url, supabaseUrl, supabasePath } alih-
 // alih string URL polos, supaya thumbnail hasil auto-generate (dari
 // frame video) juga bisa punya backup Supabase kalau memang ada file
