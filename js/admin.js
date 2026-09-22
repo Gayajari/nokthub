@@ -329,57 +329,20 @@ function captureFrameFromVideoUrl(url) {
 }
 
 // ============================================================
-// KOLASE 3-FRAME (BARU) -- untuk video vertikal 9:16 (TikTok/Shorts)
-// yang perlu tampil di frame 16:9 (homepage dkk, seperti YouTube).
-// Ambil 3 frame dari video pada 3 titik waktu berbeda, gabung jadi
-// 1 gambar 16:9 berisi 3 potongan vertikal sama besar berdampingan.
+// KOLASE 3-FOTO MANUAL (BARU) -- untuk video vertikal 9:16 (TikTok/
+// Shorts) yang perlu tampil di frame 16:9 (homepage dkk, seperti
+// YouTube). Admin pilih 3 foto (biasanya screenshot dari video),
+// digabung jadi 1 gambar 16:9 berisi 3 potongan vertikal sama besar
+// berdampingan. Dibuat manual (bukan ambil frame dari video secara
+// otomatis) karena banyak host video tidak mengizinkan browser
+// mengakses videonya langsung (CORS) -- upload file lokal tidak
+// punya masalah itu sama sekali.
 // ============================================================
 const COLLAGE_WIDTH = 640;
 const COLLAGE_HEIGHT = 360;
 const COLLAGE_SLOT_WIDTH = COLLAGE_WIDTH / 3;
-// 20% / 50% / 80% durasi -- menghindari frame hitam/blank yang sering
-// muncul persis di detik pertama atau terakhir video.
-const COLLAGE_TIMESTAMPS_RATIO = [0.2, 0.5, 0.8];
 
-function loadVideoForCapture(url) {
-  return new Promise((resolve, reject) => {
-    const video = document.createElement("video");
-    video.crossOrigin = "anonymous";
-    video.muted = true;
-    video.preload = "auto";
-
-    const cleanup = () => {
-      video.removeEventListener("loadeddata", onReady);
-      video.removeEventListener("error", onError);
-    };
-    const onReady = () => { cleanup(); resolve(video); };
-    const onError = () => { cleanup(); reject(new Error("Video gagal dimuat (cek link video atau apakah host-nya mengizinkan akses lintas-domain/CORS).")); };
-
-    video.addEventListener("loadeddata", onReady);
-    video.addEventListener("error", onError);
-    video.src = url;
-
-    setTimeout(() => { cleanup(); reject(new Error("Video terlalu lama dimuat, coba lagi.")); }, 15000);
-  });
-}
-
-function seekVideoTo(video, time) {
-  return new Promise((resolve, reject) => {
-    const cleanup = () => {
-      video.removeEventListener("seeked", onSeeked);
-      video.removeEventListener("error", onError);
-    };
-    const onSeeked = () => { cleanup(); resolve(); };
-    const onError = () => { cleanup(); reject(new Error("Gagal mengambil frame video di salah satu titik waktu.")); };
-
-    video.addEventListener("seeked", onSeeked);
-    video.addEventListener("error", onError);
-    try { video.currentTime = time; }
-    catch (e) { cleanup(); reject(e); }
-  });
-}
-
-// Gambar "source" (video/canvas/image) ke area tujuan dengan cara
+// Gambar "source" (image/canvas/video) ke area tujuan dengan cara
 // object-fit:cover -- dipotong dari tengah supaya tidak gepeng/melar,
 // mirip perilaku CSS "cover".
 function drawCover(ctx, source, srcW, srcH, dx, dy, dWidth, dHeight) {
@@ -394,11 +357,19 @@ function drawCover(ctx, source, srcW, srcH, dx, dy, dWidth, dHeight) {
   ctx.drawImage(source, sx, sy, sw, sh, dx, dy, dWidth, dHeight);
 }
 
-async function generateCollageThumbnail(videoUrl) {
-  const video = await loadVideoForCapture(videoUrl);
-  const duration = video.duration;
-  if (!duration || !isFinite(duration)) {
-    throw new Error("Durasi video tidak terbaca, coba video lain.");
+function loadImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => resolve(img);
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error(`Gagal membaca foto "${file.name}".`)); };
+    img.src = objectUrl;
+  });
+}
+
+async function generateManualCollage(files) {
+  if (files.length !== 3) {
+    throw new Error("Pilih tepat 3 foto (kiri, tengah, kanan).");
   }
 
   const canvas = document.createElement("canvas");
@@ -406,9 +377,10 @@ async function generateCollageThumbnail(videoUrl) {
   canvas.height = COLLAGE_HEIGHT;
   const ctx = canvas.getContext("2d");
 
-  for (let i = 0; i < COLLAGE_TIMESTAMPS_RATIO.length; i++) {
-    await seekVideoTo(video, duration * COLLAGE_TIMESTAMPS_RATIO[i]);
-    drawCover(ctx, video, video.videoWidth, video.videoHeight, i * COLLAGE_SLOT_WIDTH, 0, COLLAGE_SLOT_WIDTH, COLLAGE_HEIGHT);
+  for (let i = 0; i < 3; i++) {
+    const img = await loadImageFile(files[i]);
+    drawCover(ctx, img, img.naturalWidth, img.naturalHeight, i * COLLAGE_SLOT_WIDTH, 0, COLLAGE_SLOT_WIDTH, COLLAGE_HEIGHT);
+    URL.revokeObjectURL(img.src);
   }
 
   return new Promise((resolve, reject) => {
@@ -419,35 +391,32 @@ async function generateCollageThumbnail(videoUrl) {
   });
 }
 
-// Tombol "Buat Thumbnail Kolase" -- ambil link dari kolom Link Embed
-// Video, buat kolase, lalu masuk ke alur upload thumbnail yang SAMA
-// seperti upload file biasa: ImgBB diupload langsung, backup Supabase
-// DITUNDA (disimpan di pendingThumbnailBlob) sampai admin klik Simpan.
+// Tombol "Gabung Jadi Kolase" -- ambil 3 file dari input foto, gabung,
+// lalu masuk ke alur upload thumbnail yang SAMA seperti upload file
+// biasa: ImgBB diupload langsung, backup Supabase DITUNDA (disimpan
+// di pendingThumbnailBlob) sampai admin klik Simpan.
 document.addEventListener("click", async (e) => {
   if (e.target.id !== "btn-generate-collage") return;
-  const embedUrl = document.getElementById("f-embed").value.trim();
   const status = document.getElementById("collage-status");
   const urlInput = document.getElementById("f-thumb");
   const preview = document.getElementById("thumb-preview");
   const thumbStatus = document.getElementById("thumb-upload-status");
 
-  if (!embedUrl) {
-    status.textContent = "Isi dulu Link Embed Video (atau upload video dari galeri) sebelum bikin kolase.";
-    return;
-  }
-  const isDirectVideoFile = /\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(embedUrl);
-  if (!isDirectVideoFile) {
-    status.textContent = "Kolase cuma bisa dibuat dari link file video langsung (.mp4/.webm/.mov/.m4v), bukan link embed platform seperti YouTube/host video.";
+  const inputs = ["f-collage-1", "f-collage-2", "f-collage-3"].map(id => document.getElementById(id));
+  const files = inputs.map(el => el.files[0]).filter(Boolean);
+
+  if (files.length !== 3) {
+    status.textContent = "Pilih 3 foto dulu (kiri, tengah, kanan) sebelum digabung.";
     return;
   }
 
   const btn = e.target;
   btn.disabled = true;
-  status.textContent = "Mengambil 3 frame dari video...";
+  status.textContent = "Menggabungkan 3 foto...";
   try {
-    const collageBlob = await generateCollageThumbnail(embedUrl);
+    const collageBlob = await generateManualCollage(files);
 
-    status.textContent = "Frame berhasil diambil. Mengupload kolase ke ImgBB...";
+    status.textContent = "Kolase dibuat. Mengupload ke ImgBB...";
     preview.innerHTML = "";
     const s = await getSiteSettings(true);
     const url = await uploadToHost(collageBlob, {
@@ -464,6 +433,7 @@ document.addEventListener("click", async (e) => {
 
     status.textContent = "Kolase berhasil dibuat & diupload ke ImgBB.";
     thumbStatus.textContent = "";
+    inputs.forEach(el => { el.value = ""; });
   } catch (err) {
     status.textContent = "Gagal membuat kolase: " + err.message;
   } finally {
