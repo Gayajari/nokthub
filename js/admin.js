@@ -4,7 +4,8 @@
 import {
   auth, db, onAuthStateChanged, collection, doc, getDoc, getDocs, addDoc,
   setDoc, updateDoc, deleteDoc, query, where, orderBy, serverTimestamp,
-  deleteField, resolveCategoryIcon, iconSvg, allIconIds, ICON_LIBRARY
+  deleteField, resolveCategoryIcon, iconSvg, allIconIds, ICON_LIBRARY,
+  uploadThumbnailToSupabase, deleteThumbnailFromSupabase
 } from "./core.js";
 
 function slugify(str) {
@@ -118,12 +119,6 @@ async function pollUploadStatus(idOrUrl, statusConfig) {
 // ============================================================
 // CROP/ZOOM THUMBNAIL (Cropper.js via CDN di dashboard.html)
 // ============================================================
-// PENYEMPURNAAN: rasio crop dulu di-hardcode 16:9 saja (cocok untuk
-// thumbnail landscape standar, tapi tidak cocok untuk konten model
-// vertikal/Shorts/Reels). Sekarang admin bisa pilih rasio SEBELUM crop
-// lewat radio button "16:9" / "9:16" di modal -- lihat CROP_RATIOS dan
-// getSelectedRatio() di bawah. Ukuran output canvas juga menyesuaikan
-// otomatis sesuai rasio yang dipilih (bukan selalu 640x360).
 let cropperInstance = null;
 let pendingCropResolve = null;
 
@@ -165,8 +160,6 @@ function initCropModalButtons() {
   const ratioRadios = document.querySelectorAll('input[name="crop-ratio"]');
   if (!confirmBtn || !cancelBtn) return;
 
-  // Ganti rasio kotak crop secara langsung (tanpa perlu tutup/buka ulang
-  // modal atau pilih ulang file) begitu admin klik radio button lain.
   ratioRadios.forEach(radio => {
     radio.addEventListener("change", () => {
       if (!cropperInstance) return;
@@ -197,6 +190,11 @@ function initCropModalButtons() {
 }
 
 // ---------- Upload Thumbnail (manual link ATAU upload file + crop) ----------
+// BARU: setiap kali admin upload FILE thumbnail (lewat crop modal),
+// file yang sama diupload ke DUA tempat sekaligus -- ImgBB (utama) dan
+// Supabase Storage (cadangan). URL + path Supabase disimpan sementara
+// di variabel currentThumbnailSupabase / currentSupabaseFilePath, baru
+// benar-benar ditulis ke Firestore saat tombol Simpan/Update ditekan.
 function initThumbUpload() {
   const fileInput = document.getElementById("f-thumb-file");
   const urlInput = document.getElementById("f-thumb");
@@ -208,6 +206,15 @@ function initThumbUpload() {
     const normalized = normalizeThumbLink(urlInput.value.trim());
     urlInput.value = normalized;
     preview.innerHTML = normalized ? `<img src="${normalized}" alt="preview thumbnail">` : "";
+
+    // Thumbnail diganti secara manual (bukan lewat upload file) -- tidak
+    // ada file untuk dibackup ke Supabase. Kosongkan supaya kalau video
+    // ini sedang diedit dan sebelumnya punya backup, backup lama itu
+    // akan dibersihkan saat disimpan (thumbnail dianggap "diganti").
+    // Batalkan juga file yang mungkin sudah dipilih tapi belum diupload.
+    currentThumbnailSupabase = "";
+    currentSupabaseFilePath = "";
+    pendingThumbnailBlob = null;
   });
 
   if (!fileInput) return;
@@ -218,6 +225,7 @@ function initThumbUpload() {
     fileInput.value = "";
     if (!cropped) return;
 
+    // ImgBB tetap upload LANGSUNG seperti perilaku lama (tidak diubah).
     status.textContent = "Mengupload gambar...";
     preview.innerHTML = "";
     try {
@@ -228,7 +236,17 @@ function initThumbUpload() {
       });
       urlInput.value = url;
       preview.innerHTML = `<img src="${url}" alt="preview thumbnail">`;
-      status.textContent = "Berhasil diupload.";
+
+      // ---- Backup Supabase: DITUNDA, bukan diupload sekarang ----
+      // Supaya tidak ada file "numpuk" di Supabase kalau admin batal /
+      // pindah halaman / edit video lain sebelum sempat klik Simpan.
+      // Blob hasil crop disimpan di memori saja; baru benar-benar
+      // diupload ke Supabase pada saat tombol Simpan/Update ditekan
+      // (lihat handler #btn-upload), sebagai bagian dari aksi yang
+      // sama dengan penulisan ke Firestore.
+      pendingThumbnailBlob = cropped;
+      pendingThumbnailFileName = "thumbnail.jpg";
+      status.textContent = "Berhasil diupload ke ImgBB. Backup Supabase akan diupload saat video disimpan.";
     } catch (err) {
       status.textContent = "Gagal upload: " + err.message;
     }
@@ -310,16 +328,23 @@ function captureFrameFromVideoUrl(url) {
   });
 }
 
+// BARU: sekarang mengembalikan { url, supabaseUrl, supabasePath } alih-
+// alih string URL polos, supaya thumbnail hasil auto-generate (dari
+// frame video) juga bisa punya backup Supabase kalau memang ada file
+// blob-nya. Untuk kasus static thumb (YouTube/Vimeo) atau thumbnail
+// dari API host video, tidak ada file untuk dibackup -- supabaseUrl/
+// supabasePath dikosongkan (aman, konsisten dengan kompatibilitas data
+// lama yang memang boleh tidak punya backup).
 async function autoGenerateThumbnail(embedUrl) {
   const staticThumb = extractAutoThumbFromEmbed(embedUrl);
-  if (staticThumb) return staticThumb;
+  if (staticThumb) return { url: staticThumb, supabaseUrl: "", supabasePath: "" };
 
   const s = await getSiteSettings(true);
 
   const profile = findMatchingHostProfile(embedUrl, s.videoHostProfiles);
   if (profile) {
     const apiThumb = await fetchThumbnailFromHostProfile(embedUrl, profile);
-    if (apiThumb) return apiThumb;
+    if (apiThumb) return { url: apiThumb, supabaseUrl: "", supabasePath: "" };
   }
 
   const isDirectVideoFile = /\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(embedUrl);
@@ -327,10 +352,20 @@ async function autoGenerateThumbnail(embedUrl) {
     const blob = await captureFrameFromVideoUrl(embedUrl);
     if (blob) {
       try {
-        return await uploadToHost(blob, {
+        const url = await uploadToHost(blob, {
           endpoint: s.thumbEndpoint, apiKey: s.thumbApiKey, urlField: s.thumbField,
           fileFieldName: "image", authType: "query", fileName: "auto-thumb.jpg"
         });
+        let supabaseUrl = "", supabasePath = "";
+        try {
+          const backup = await uploadThumbnailToSupabase(blob, "auto-thumb.jpg");
+          supabaseUrl = backup.url;
+          supabasePath = backup.path;
+        } catch (e) {
+          // Backup gagal -- thumbnail utama (ImgBB) tetap dipakai,
+          // cuma tidak punya cadangan Supabase untuk video ini.
+        }
+        return { url, supabaseUrl, supabasePath };
       } catch (e) { return null; }
     }
   }
@@ -425,9 +460,6 @@ function initTabs() {
       ["upload", "videos", "settings", "pages"].forEach(t => {
         document.getElementById(`tab-${t}`).style.display = t === link.dataset.tab ? "block" : "none";
       });
-      // Kelola Ikon Kategori cukup dimuat sekali saat tab Pengaturan dibuka
-      // (bukan setiap render), supaya tidak nge-fetch Firestore berulang
-      // tiap ganti-ganti tab kalau isinya belum berubah.
       if (link.dataset.tab === "settings") loadCategoryIconManager();
     });
   });
@@ -545,8 +577,6 @@ async function loadSettings() {
     if (el && val) el.value = val;
   });
 
-  // Checkbox "Matikan SEMUA ikon kategori" -- terpisah dari map di atas
-  // karena checkbox pakai .checked, bukan .value.
   const hideIconsEl = document.getElementById("s-hide-category-icons");
   if (hideIconsEl) hideIconsEl.checked = !!s.hideCategoryIcons;
 
@@ -569,9 +599,6 @@ document.addEventListener("click", async (e) => {
     hideCategoryIcons
   }, { merge: true });
   settingsCache = null;
-  // Sinkronkan juga ke cache localStorage supaya categories.js di
-  // halaman lain langsung ikut perubahan tanpa nunggu Firestore round-
-  // trip (sama seperti mekanisme cache nama/warna situs yang sudah ada).
   try {
     const cached = JSON.parse(localStorage.getItem("nokt_settings_cache") || "null") || {};
     cached.hideCategoryIcons = hideCategoryIcons;
@@ -620,7 +647,7 @@ document.addEventListener("change", async (e) => {
   const select = e.target;
   const slug = select.dataset.slug;
   const catName = select.dataset.name;
-  const iconId = select.value; // "" = balik ke otomatis
+  const iconId = select.value;
   const row = select.closest(".cat-icon-row");
   const statusEl = row.querySelector(".cat-icon-status");
   const previewEl = row.querySelector(".cat-icon-preview");
@@ -699,10 +726,6 @@ async function upsertCategory(name) {
   if (!snap.exists()) {
     await setDoc(ref, { name, slug, videoCount: 1 });
   } else {
-    // FIX: sebelumnya updateDoc hanya kirim videoCount -- ini aman,
-    // updateDoc TIDAK menghapus field lain yang sudah ada (termasuk
-    // `icon` manual yang mungkin sudah dipilih admin), jadi ikon manual
-    // tetap tersimpan walau video baru terus ditambahkan ke kategori ini.
     await updateDoc(ref, { videoCount: (snap.data().videoCount || 0) + 1 });
   }
 }
@@ -723,9 +746,6 @@ async function upsertTags(tags) {
 
 // ============================================================
 // KODE VIDEO 6 KARAKTER (link tonton: domain/w/kode)
-// Video baru memakai kode acak 6 karakter (huruf besar, huruf kecil, angka)
-// sebagai ID dokumen di koleksi "videos". Video lama tetap memakai ID
-// lamanya dan tetap bisa dibuka lewat domain/w/<idLama>.
 // ============================================================
 const VIDEO_CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const VIDEO_CODE_LENGTH = 6;
@@ -736,7 +756,6 @@ function randomVideoCode(len = VIDEO_CODE_LENGTH) {
     const buf = new Uint8Array(len * 2);
     crypto.getRandomValues(buf);
     for (const b of buf) {
-      // 248 = 62 * 4 -> membuang nilai sisa supaya tiap karakter peluangnya sama
       if (b < 248 && out.length < len) out += VIDEO_CODE_CHARS[b % 62];
     }
   }
@@ -757,6 +776,24 @@ async function generateUniqueVideoCode() {
 // ============================================================
 let editingVideoId = null;
 
+// BARU: state thumbnail backup Supabase untuk form yang sedang aktif.
+// - currentThumbnailSupabase / currentSupabaseFilePath -> nilai yang
+//   akan DITULIS ke Firestore saat Simpan/Update ditekan.
+// - originalSupabaseFilePath -> nilai LAMA (dari dokumen sebelum
+//   diedit), dipakai untuk tahu file mana yang perlu dihapus dari
+//   Supabase kalau thumbnail benar-benar diganti.
+let currentThumbnailSupabase = "";
+let currentSupabaseFilePath = "";
+let originalSupabaseFilePath = null;
+
+// File thumbnail yang sudah dipilih+crop admin tapi BELUM diupload ke
+// Supabase -- murni disimpan di memori browser sampai admin benar-benar
+// klik Simpan/Update. Ini yang membuat Supabase "ngikutin dasbor admin":
+// kalau tidak jadi disimpan, tidak pernah ada file yang masuk ke
+// Supabase sama sekali, jadi tidak mungkin numpuk.
+let pendingThumbnailBlob = null;
+let pendingThumbnailFileName = "thumbnail.jpg";
+
 function fillForm(v) {
   document.getElementById("f-title").value = v.title || "";
   document.getElementById("f-category").value = v.category || "";
@@ -771,10 +808,21 @@ function fillForm(v) {
   document.getElementById("f-admin-name").value = v.adminName || "";
   const preview = document.getElementById("thumb-preview");
   preview.innerHTML = v.thumbnail ? `<img src="${v.thumbnail}" alt="preview thumbnail">` : "";
+
+  // Kompatibel dengan dokumen lama yang belum punya field Supabase --
+  // kalau tidak ada, dianggap kosong/null (bukan error).
+  currentThumbnailSupabase = v.thumbnail_supabase || "";
+  currentSupabaseFilePath = v.supabase_file_path || "";
+  originalSupabaseFilePath = v.supabase_file_path || null;
 }
 
 function resetForm() {
   editingVideoId = null;
+  currentThumbnailSupabase = "";
+  currentSupabaseFilePath = "";
+  originalSupabaseFilePath = null;
+  pendingThumbnailBlob = null;
+  pendingThumbnailFileName = "thumbnail.jpg";
   document.querySelectorAll("#tab-upload input, #tab-upload textarea").forEach(i => i.value = "");
   document.getElementById("thumb-preview").innerHTML = "";
   document.getElementById("thumb-upload-status").textContent = "";
@@ -787,6 +835,9 @@ function resetForm() {
 async function startEdit(videoId) {
   const snap = await getDoc(doc(db, "videos", videoId));
   if (!snap.exists()) return;
+  // Batalkan file thumbnail yang mungkin belum sempat disimpan dari
+  // form sebelumnya -- aman, karena belum pernah terupload ke Supabase.
+  pendingThumbnailBlob = null;
   editingVideoId = videoId;
   fillForm(snap.data());
   document.getElementById("btn-upload").textContent = "Update Video";
@@ -814,26 +865,79 @@ document.addEventListener("click", async (e) => {
   if (!thumbnail) {
     msg.textContent = "Membuat thumbnail otomatis dari video...";
     const auto = await autoGenerateThumbnail(embedUrl);
-    if (auto) thumbnail = auto;
+    if (auto) {
+      thumbnail = auto.url;
+      currentThumbnailSupabase = auto.supabaseUrl || "";
+      currentSupabaseFilePath = auto.supabasePath || "";
+    }
     msg.textContent = "";
   }
+
+  // Kalau upload ImgBB tidak pernah berhasil sama sekali (thumbnail
+  // masih kosong setelah auto-generate juga gagal), video TETAP
+  // disimpan tanpa thumbnail -- itu perilaku lama, tidak diubah.
+
+  const btn = document.getElementById("btn-upload");
+  btn.disabled = true;
+  const prevLabel = btn.textContent;
+  btn.textContent = editingVideoId ? "Memperbarui..." : "Menyimpan...";
+
+  // ---- Upload Supabase yang DITUNDA, dieksekusi PERSIS di sini ----
+  // Ini titik di mana admin sudah pasti menekan Simpan/Update, jadi
+  // baru sekarang file benar-benar dikirim ke Supabase -- bukan saat
+  // file dipilih. Kalau admin batal sebelum titik ini, tidak ada apa
+  // pun yang pernah masuk ke Supabase.
+  // uploadedThisRun dipakai untuk ROLLBACK: kalau ternyata penulisan ke
+  // Firestore di bawah gagal, file yang baru saja diupload ini dihapus
+  // lagi supaya tidak jadi sampah yang tidak tercatat di dasbor admin.
+  let uploadedThisRun = null;
+  if (pendingThumbnailBlob) {
+    try {
+      const backup = await uploadThumbnailToSupabase(pendingThumbnailBlob, pendingThumbnailFileName);
+      currentThumbnailSupabase = backup.url;
+      currentSupabaseFilePath = backup.path;
+      uploadedThisRun = backup.path;
+    } catch (backupErr) {
+      currentThumbnailSupabase = "";
+      currentSupabaseFilePath = "";
+      msg.textContent = "Peringatan: backup Supabase gagal diupload (" + backupErr.message + "). Video tetap disimpan dengan thumbnail ImgBB saja.";
+    }
+    pendingThumbnailBlob = null;
+  } else if (currentSupabaseFilePath && currentSupabaseFilePath !== originalSupabaseFilePath) {
+    // Kasus auto-generate dari frame video (bukan lewat pilih file) --
+    // upload Supabase-nya sudah terjadi di dalam autoGenerateThumbnail(),
+    // tepat di alur simpan yang sama, jadi tetap konsisten dengan aturan
+    // "hanya masuk Supabase kalau benar-benar disimpan".
+    uploadedThisRun = currentSupabaseFilePath;
+  }
+
+  // Path Supabase LAMA yang perlu dibersihkan SETELAH data baru
+  // berhasil tersimpan -- hanya kalau memang berbeda dari path baru
+  // (artinya thumbnail benar-benar diganti).
+  const pathToCleanup = (editingVideoId && originalSupabaseFilePath &&
+    originalSupabaseFilePath !== currentSupabaseFilePath) ? originalSupabaseFilePath : null;
 
   try {
     if (editingVideoId) {
       await updateDoc(doc(db, "videos", editingVideoId), {
         title, slug: slugify(title), description, category, tags,
-        thumbnail, embedUrl, status, adminName,
+        thumbnail,
+        thumbnail_supabase: currentThumbnailSupabase,
+        supabase_file_path: currentSupabaseFilePath,
+        embedUrl, status, adminName,
         seoTitle, seoDescription, metaKeywords
       });
       await upsertCategory(category);
       await upsertTags(tags);
       msg.textContent = "Video berhasil diupdate.";
     } else {
-      // Video baru: ID dokumen = kode 6 karakter, link tonton = /w/kode
       const code = await generateUniqueVideoCode();
       await setDoc(doc(db, "videos", code), {
         title, slug: slugify(title), description, category, tags,
-        thumbnail, embedUrl, status, uploadedAt: serverTimestamp(), adminName,
+        thumbnail,
+        thumbnail_supabase: currentThumbnailSupabase,
+        supabase_file_path: currentSupabaseFilePath,
+        embedUrl, status, uploadedAt: serverTimestamp(), adminName,
         seoTitle, seoDescription, metaKeywords,
         viewCount: 0, likeCount: 0, shareCount: 0, searchTagCount: 0
       });
@@ -841,10 +945,35 @@ document.addEventListener("click", async (e) => {
       await upsertTags(tags);
       msg.textContent = "Video berhasil disimpan.";
     }
+
+    // Bersihkan backup Supabase LAMA -- dilakukan SETELAH data baru
+    // pasti tersimpan, supaya tidak ada state rusak di tengah jalan
+    // kalau proses ini gagal di tengah.
+    if (pathToCleanup) {
+      try {
+        await deleteThumbnailFromSupabase(pathToCleanup);
+      } catch (cleanupErr) {
+        msg.textContent += " (Peringatan: backup thumbnail lama di Supabase gagal dihapus — " + cleanupErr.message + ")";
+      }
+    }
+
     resetForm();
     loadVideoTable();
   } catch (err) {
     msg.textContent = "Gagal menyimpan: " + err.message;
+    // ROLLBACK: kalau sempat berhasil upload ke Supabase di run ini tapi
+    // penulisan Firestore-nya gagal, hapus lagi file itu -- supaya tidak
+    // ada file yang "nyangkut" di Supabase tanpa video yang menyimpannya.
+    if (uploadedThisRun) {
+      try {
+        await deleteThumbnailFromSupabase(uploadedThisRun);
+      } catch (rollbackErr) {
+        msg.textContent += " (Peringatan: gagal membersihkan file Supabase yang sempat terupload — " + rollbackErr.message + ")";
+      }
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prevLabel;
   }
 });
 
@@ -868,12 +997,39 @@ async function loadVideoTable() {
   }).join("");
 }
 
+// BARU: sebelum menghapus dokumen video, ambil dulu supabase_file_path
+// dan hapus file cadangannya dari Supabase Storage. Dokumen lama yang
+// tidak punya field ini dilewati begitu saja (tidak error). Kalau hapus
+// file Supabase gagal, admin diberi tahu lewat alert -- tapi dokumen
+// video TETAP dihapus (tidak dibiarkan "nyangkut" gara-gara ini).
 document.addEventListener("click", async (e) => {
   const editId = e.target.dataset.edit;
   if (editId) { startEdit(editId); return; }
   const delId = e.target.dataset.del;
   if (delId && confirm("Hapus video ini?")) {
-    await deleteDoc(doc(db, "videos", delId));
-    loadVideoTable();
+    const btn = e.target;
+    const prevLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Menghapus...";
+    try {
+      const snap = await getDoc(doc(db, "videos", delId));
+      const supabasePath = snap.exists() ? (snap.data().supabase_file_path || null) : null;
+
+      if (supabasePath) {
+        try {
+          await deleteThumbnailFromSupabase(supabasePath);
+        } catch (cleanupErr) {
+          alert("Backup thumbnail di Supabase gagal dihapus (" + cleanupErr.message + "). Dokumen video tetap akan dihapus.");
+        }
+      }
+
+      await deleteDoc(doc(db, "videos", delId));
+      loadVideoTable();
+    } catch (err) {
+      alert("Gagal menghapus video: " + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prevLabel;
+    }
   }
 });
