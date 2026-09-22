@@ -67,6 +67,25 @@
           <input type="file" id="f-thumb-file" accept="image/*">
           <div id="thumb-preview" style="margin-top:8px"></div>
           <div id="thumb-upload-status" style="font-size:.78rem;color:var(--text-muted);margin-top:4px"></div>
+
+          <!-- ---------- Kolase 3-frame untuk video 9:16 (BARU) ---------- -->
+          <!-- Khusus video vertikal (TikTok/Shorts) yang tayang di frame 16:9
+               (seperti YouTube) di homepage dkk. Ambil 3 frame otomatis dari
+               video pada "Link Embed Video" di bawah (harus link file video
+               langsung: .mp4/.webm/.mov/.m4v), digabung jadi 1 thumbnail
+               16:9 berisi 3 potongan vertikal sama besar berdampingan. Hasil
+               kolase lewat alur upload thumbnail yang sama seperti biasa
+               (ImgBB langsung + backup Supabase ditunda sampai Simpan). -->
+          <button class="btn" id="btn-generate-collage" type="button" style="margin-top:8px">
+            Buat Thumbnail Kolase 3-Frame (video 9:16 → 16:9)
+          </button>
+          <div id="collage-status" style="font-size:.78rem;color:var(--text-muted);margin-top:4px"></div>
+          <div style="font-size:.72rem;color:var(--text-muted);margin-top:4px">
+            Untuk video vertikal (TikTok/Shorts). Ambil 3 frame otomatis dari video di kolom
+            "Link Embed Video" di bawah (harus link file video langsung: .mp4/.webm/.mov/.m4v),
+            digabung jadi 1 thumbnail 16:9 (3 potongan vertikal berdampingan).
+          </div>
+
           <div style="font-size:.72rem;color:var(--text-muted);margin-top:4px">
             Kalau dikosongkan total, sistem coba buat thumbnail otomatis dari videonya saat disimpan.
           </div>
@@ -190,12 +209,6 @@
 
 <div id="crop-modal">
   <div class="crop-box">
-    <!-- ---------- Pilihan rasio crop ---------- -->
-    <!-- Sebelumnya rasio di-hardcode 16:9 saja. Sekarang admin bisa pilih
-         sebelum crop: 16:9 (thumbnail landscape standar) atau 9:16
-         (vertikal, cocok untuk konten model Shorts/Reels). Pilihan ini
-         langsung mengubah kotak crop di preview tanpa perlu buka ulang
-         modal -- lihat listener "change" di admin.js. -->
     <div class="crop-ratio-picker" style="display:flex;gap:8px;margin-bottom:10px;justify-content:center">
       <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;cursor:pointer;width:auto">
         <input type="radio" name="crop-ratio" id="crop-ratio-169" value="16:9" checked style="width:auto">
