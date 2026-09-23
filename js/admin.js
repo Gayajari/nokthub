@@ -329,14 +329,116 @@ function captureFrameFromVideoUrl(url) {
 }
 
 // ============================================================
-// KOLASE 3-FOTO MANUAL (BARU) -- untuk video vertikal 9:16 (TikTok/
-// Shorts) yang perlu tampil di frame 16:9 (homepage dkk, seperti
-// YouTube). Admin pilih 3 foto (biasanya screenshot dari video),
-// digabung jadi 1 gambar 16:9 berisi 3 potongan vertikal sama besar
-// berdampingan. Dibuat manual (bukan ambil frame dari video secara
-// otomatis) karena banyak host video tidak mengizinkan browser
-// mengakses videonya langsung (CORS) -- upload file lokal tidak
-// punya masalah itu sama sekali.
+// State kolase: array 3 elemen sejajar dengan slot 0/1/2 (kiri-tengah-
+// kanan). collageSlotFiles menyimpan File aslinya (dipakai saat
+// benar-benar bikin gambar kolase); collageSlotUrls menyimpan object
+// URL untuk preview instan di layar (gratis, tanpa upload apa pun).
+// ============================================================
+let collageSlotFiles = [null, null, null];
+let collageSlotUrls = [null, null, null];
+let collageActiveSlot = null; // slot yang sedang menunggu hasil file picker
+
+function renderCollageSlots() {
+  for (let i = 0; i < 3; i++) {
+    const slotEl = document.querySelector(`.collage-slot[data-slot="${i}"]`);
+    if (!slotEl) continue;
+    const plusEl = slotEl.querySelector(".collage-slot-plus");
+    const imgEl = slotEl.querySelector(".collage-slot-img");
+    const removeEl = slotEl.querySelector(".collage-slot-remove");
+    const url = collageSlotUrls[i];
+    if (url) {
+      imgEl.src = url;
+      imgEl.style.display = "block";
+      plusEl.style.display = "none";
+      removeEl.style.display = "flex";
+      slotEl.classList.add("filled");
+    } else {
+      imgEl.style.display = "none";
+      imgEl.removeAttribute("src");
+      plusEl.style.display = "block";
+      removeEl.style.display = "none";
+      slotEl.classList.remove("filled");
+    }
+  }
+
+  const allFilled = collageSlotFiles.every(Boolean);
+  const previewWrap = document.getElementById("collage-live-preview");
+  const genBtn = document.getElementById("btn-generate-collage");
+  if (previewWrap) {
+    previewWrap.style.display = allFilled ? "block" : "none";
+    if (allFilled) {
+      document.querySelectorAll(".collage-preview-part").forEach(el => {
+        const slot = parseInt(el.dataset.slot, 10);
+        el.src = collageSlotUrls[slot];
+      });
+    }
+  }
+  if (genBtn) genBtn.disabled = !allFilled;
+}
+
+function clearCollagePicks() {
+  collageSlotUrls.forEach(url => { if (url) URL.revokeObjectURL(url); });
+  collageSlotFiles = [null, null, null];
+  collageSlotUrls = [null, null, null];
+  renderCollageSlots();
+}
+
+function initCollagePicker() {
+  const fileInput = document.getElementById("f-collage-file-input");
+  if (!fileInput) return;
+
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files[0];
+    fileInput.value = ""; // reset supaya foto yang sama bisa dipilih ulang kalau perlu
+    if (!file || collageActiveSlot === null) return;
+    const i = collageActiveSlot;
+    if (collageSlotUrls[i]) URL.revokeObjectURL(collageSlotUrls[i]);
+    collageSlotFiles[i] = file;
+    collageSlotUrls[i] = URL.createObjectURL(file);
+    renderCollageSlots();
+  });
+
+  // Tap kotak (bukan tombol × di dalamnya) -> buka file picker utk slot itu.
+  // Tombol × -> hapus foto di slot itu. Tombol ⇄ -> tukar posisi 2 slot
+  // bertetangga (data-swap="0-1" atau "1-2").
+  document.addEventListener("click", (e) => {
+    const removeBtn = e.target.closest(".collage-slot-remove");
+    if (removeBtn) {
+      const i = parseInt(removeBtn.dataset.slot, 10);
+      if (collageSlotUrls[i]) URL.revokeObjectURL(collageSlotUrls[i]);
+      collageSlotFiles[i] = null;
+      collageSlotUrls[i] = null;
+      renderCollageSlots();
+      return;
+    }
+
+    const swapBtn = e.target.closest(".collage-swap");
+    if (swapBtn) {
+      const [a, b] = swapBtn.dataset.swap.split("-").map(Number);
+      [collageSlotFiles[a], collageSlotFiles[b]] = [collageSlotFiles[b], collageSlotFiles[a]];
+      [collageSlotUrls[a], collageSlotUrls[b]] = [collageSlotUrls[b], collageSlotUrls[a]];
+      renderCollageSlots();
+      return;
+    }
+
+    const slotEl = e.target.closest(".collage-slot");
+    if (slotEl) {
+      collageActiveSlot = parseInt(slotEl.dataset.slot, 10);
+      fileInput.click();
+    }
+  });
+}
+
+// ============================================================
+// KOLASE 3-FOTO -- untuk video vertikal 9:16 (TikTok/Shorts) yang
+// perlu tampil di frame 16:9 (homepage dkk, seperti YouTube). Admin
+// tap 3 kotak untuk pilih foto (kiri-tengah-kanan), preview 16:9
+// muncul instan di layar TANPA upload apa pun (murni CSS, gratis).
+// Baru saat tombol "Gunakan Kolase Ini" ditekan, gambar kolase
+// sungguhan digambar lewat <canvas> (supaya jadi satu file utuh,
+// bukan 3 file terpisah) lalu masuk ke alur upload thumbnail yang
+// SAMA seperti upload file biasa: ImgBB diupload langsung, backup
+// Supabase DITUNDA (pendingThumbnailBlob) sampai admin klik Simpan.
 // ============================================================
 const COLLAGE_WIDTH = 640;
 const COLLAGE_HEIGHT = 360;
@@ -344,7 +446,7 @@ const COLLAGE_SLOT_WIDTH = COLLAGE_WIDTH / 3;
 
 // Gambar "source" (image/canvas/video) ke area tujuan dengan cara
 // object-fit:cover -- dipotong dari tengah supaya tidak gepeng/melar,
-// mirip perilaku CSS "cover".
+// persis seperti object-fit:cover yang dipakai di preview CSS-nya.
 function drawCover(ctx, source, srcW, srcH, dx, dy, dWidth, dHeight) {
   const srcRatio = srcW / srcH;
   const dstRatio = dWidth / dHeight;
@@ -368,7 +470,7 @@ function loadImageFile(file) {
 }
 
 async function generateManualCollage(files) {
-  if (files.length !== 3) {
+  if (files.length !== 3 || files.some(f => !f)) {
     throw new Error("Pilih tepat 3 foto (kiri, tengah, kanan).");
   }
 
@@ -391,10 +493,6 @@ async function generateManualCollage(files) {
   });
 }
 
-// Tombol "Gabung Jadi Kolase" -- ambil 3 file dari input foto, gabung,
-// lalu masuk ke alur upload thumbnail yang SAMA seperti upload file
-// biasa: ImgBB diupload langsung, backup Supabase DITUNDA (disimpan
-// di pendingThumbnailBlob) sampai admin klik Simpan.
 document.addEventListener("click", async (e) => {
   if (e.target.id !== "btn-generate-collage") return;
   const status = document.getElementById("collage-status");
@@ -402,10 +500,7 @@ document.addEventListener("click", async (e) => {
   const preview = document.getElementById("thumb-preview");
   const thumbStatus = document.getElementById("thumb-upload-status");
 
-  const inputs = ["f-collage-1", "f-collage-2", "f-collage-3"].map(id => document.getElementById(id));
-  const files = inputs.map(el => el.files[0]).filter(Boolean);
-
-  if (files.length !== 3) {
+  if (collageSlotFiles.some(f => !f)) {
     status.textContent = "Pilih 3 foto dulu (kiri, tengah, kanan) sebelum digabung.";
     return;
   }
@@ -414,7 +509,7 @@ document.addEventListener("click", async (e) => {
   btn.disabled = true;
   status.textContent = "Menggabungkan 3 foto...";
   try {
-    const collageBlob = await generateManualCollage(files);
+    const collageBlob = await generateManualCollage(collageSlotFiles);
 
     status.textContent = "Kolase dibuat. Mengupload ke ImgBB...";
     preview.innerHTML = "";
@@ -433,7 +528,7 @@ document.addEventListener("click", async (e) => {
 
     status.textContent = "Kolase berhasil dibuat & diupload ke ImgBB.";
     thumbStatus.textContent = "";
-    inputs.forEach(el => { el.value = ""; });
+    clearCollagePicks();
   } catch (err) {
     status.textContent = "Gagal membuat kolase: " + err.message;
   } finally {
@@ -544,6 +639,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initThumbUpload();
   initVideoUpload();
   initCropModalButtons();
+  initCollagePicker();
 });
 
 // ============================================================
@@ -943,6 +1039,7 @@ function resetForm() {
   if (videoStatus) videoStatus.textContent = "";
   document.getElementById("btn-upload").textContent = "Simpan Video";
   document.getElementById("upload-msg").textContent = "";
+  clearCollagePicks();
 }
 
 async function startEdit(videoId) {
@@ -951,6 +1048,7 @@ async function startEdit(videoId) {
   // Batalkan file thumbnail yang mungkin belum sempat disimpan dari
   // form sebelumnya -- aman, karena belum pernah terupload ke Supabase.
   pendingThumbnailBlob = null;
+  clearCollagePicks();
   editingVideoId = videoId;
   fillForm(snap.data());
   document.getElementById("btn-upload").textContent = "Update Video";
